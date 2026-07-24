@@ -1,6 +1,6 @@
 // m_proc_ldrmodules.c : implementation of the ldrmodules built-in module.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -637,7 +637,7 @@ success:
 VOID M_ProcLdrModules_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if((pRI->tpSystem != VMM_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMM_SYSTEM_WINDOWS_32)) { return; }
+    if((pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_32)) { return; }
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\modules");           // module name
     pRI->reg_info.fProcessModule = TRUE;                             // module shows in process directory
     pRI->reg_fn.pfnList = LdrModules_List;                           // List function supported

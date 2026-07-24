@@ -11,7 +11,7 @@
 // WIN10 1507->1803: PagedPool/NonPagedPool not supported.
 // WIN10 1809+: Support but pages may be missing.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -556,7 +556,7 @@ BOOL VmmWinPool_AllPool1903_Offsets(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSystem
         PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_EX_POOL_HEAP_MANAGER_STATE", "NumberOfPools", &po->_EX_POOL_HEAP_MANAGER_STATE.oNumberOfPools) &&
         PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_EX_POOL_HEAP_MANAGER_STATE", "PoolNode", &po->_EX_POOL_HEAP_MANAGER_STATE.oPoolNode) &&
         PDB_GetTypeChildOffset(H, PDB_HANDLE_KERNEL, "_EX_POOL_HEAP_MANAGER_STATE", "SpecialHeaps", &po->_EX_POOL_HEAP_MANAGER_STATE.oSpecialHeaps) &&
-        PDB_GetTypeSizeShort(H, PDB_HANDLE_KERNEL, "_EX_HEAP_POOL_NODE", &po->_EX_HEAP_POOL_NODE.cb) && (po->_EX_HEAP_POOL_NODE.cb < 0x4000) &&
+        PDB_GetTypeSizeShort(H, PDB_HANDLE_KERNEL, "_EX_HEAP_POOL_NODE", &po->_EX_HEAP_POOL_NODE.cb) && (po->_EX_HEAP_POOL_NODE.cb < 0x8000) &&
         PDB_GetTypeSizeShort(H, PDB_HANDLE_KERNEL, "_SEGMENT_HEAP", &po->_SEGMENT_HEAP.cb) &&
         PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_SEGMENT_HEAP", "SegContexts", &po->_SEGMENT_HEAP.oSegContexts) &&
         PDB_GetTypeSizeShort(H, PDB_HANDLE_KERNEL, "_HEAP_SEG_CONTEXT", &po->_HEAP_SEG_CONTEXT.cb) &&
@@ -873,7 +873,9 @@ VOID VmmWinPool_AllPool1903_5_VS_DoWork(
     }
     // signature check: _HEAP_VS_SUBSEGMENT
     if(wSize != (wSignature ^ 0x2BED)) {
-        return;
+        if(wSignature & 0xf000) {
+            return;
+        }
     }
     // loop over pool entries
     while(oVsChunkHdr + 0x30 < cb) {
@@ -929,10 +931,12 @@ VOID VmmWinPool_AllPool1903_5_LFH_DoWork(
 ) {
     UCHAR ucBits;
     PBYTE pbBitmap;
-    DWORD iBlock, cBlock, oBlock;
+    DWORD cbBitmap, iBlock, cBlock, oBlock;
     DWORD cbBlockSize, oFirstBlock, dwvaShift;
     P_HEAP_LFH_SUBSEGMENT_ENCODED_OFFSETS pEncoded;
+    if(cb < ctx->po->_HEAP_LFH_SUBSEGMENT.oBlockBitmap) { return; }
     pbBitmap = pb + ctx->po->_HEAP_LFH_SUBSEGMENT.oBlockBitmap;
+    cbBitmap = cb - ctx->po->_HEAP_LFH_SUBSEGMENT.oBlockBitmap;
     pEncoded = (P_HEAP_LFH_SUBSEGMENT_ENCODED_OFFSETS)(pb + ctx->po->_HEAP_LFH_SUBSEGMENT.oBlockOffsets);
     dwvaShift = (H->vmm.kernel.dwVersionBuild >= 26100) ? ((DWORD)(va >> 12)) : ((DWORD)va >> 12);
     pEncoded->EncodedData = (DWORD)(pEncoded->EncodedData ^ ctx->qwKeyLfh ^ dwvaShift);
@@ -940,6 +944,9 @@ VOID VmmWinPool_AllPool1903_5_LFH_DoWork(
     cbBlockSize = pEncoded->BlockSize;
     if((cbBlockSize >= 0xff8) || (oFirstBlock > cb)) { return; }
     cBlock = (cb - oFirstBlock) / cbBlockSize;
+    if(cbBitmap < (cBlock >> 2)) {
+        cBlock = cbBitmap >> 2;
+    }
     for(iBlock = 0; iBlock < cBlock; iBlock++) {
         oBlock = oFirstBlock + iBlock * cbBlockSize;
         if((oBlock & 0xfff) + cbBlockSize > 0x1000) { continue; }   // block do not cross page boundaries
@@ -1091,7 +1098,7 @@ BOOL VmmWinPool_AllPool7_RangeInit(_In_ VMM_HANDLE H, _In_ PVMMWINPOOL7_CTX ctx)
     PVMMOB_MAP_OBJECT pObObj = NULL;
     if(!(psvaOb = ObSet_New(H))) { goto fail; }
     // 1: fetch sorted handle & object addresses (which are residing inside the pool):
-    if(VmmMap_GetHandle(H, ctx->pSystemProcess, &pObHnd, FALSE)) {
+    if(VmmMap_GetHandle(H, ctx->pSystemProcess, &pObHnd, VMM_HANDLE_FLAG_CORE)) {
         for(i = 0; i < pObHnd->cMap; i++) {
             ObSet_Push(psvaOb, pObHnd->pMap[i].vaObject & ~0x1fffff);   // 2MB align
         }

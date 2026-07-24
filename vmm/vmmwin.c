@@ -1,7 +1,7 @@
 // vmmwin.c : implementation related to operating system and process
 // parsing of virtual memory. Windows related features only.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -555,7 +555,7 @@ VOID VmmWinLdrModule_Initialize32(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess,
                 continue;
             }
             VmmReadEx(H, pProcess, vaModuleLdr32, pbLdrModule32, sizeof(LDR_MODULE32), &cbReadData, VMM_FLAG_FORCECACHE_READ);
-            if(cbReadData != sizeof(LDR_MODULE64)) {
+            if(cbReadData != sizeof(LDR_MODULE32)) {
                 ObSet_Push(pObSet_vaTry2, vaModuleLdr32);
                 continue;
             }
@@ -605,7 +605,7 @@ VOID VmmWinLdrModule_Initialize32(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess,
     }
     // save prefetch addresses (if desirable)
     if(H->dev.fVolatile && H->vmm.ThreadProcCache.fEnabled) {
-        ObContainer_SetOb(pProcess->pObPersistent->pObCLdrModulesPrefetch64, pObSet_vaAll);
+        ObContainer_SetOb(pProcess->pObPersistent->pObCLdrModulesPrefetch32, pObSet_vaAll);
     }
 fail:
     Ob_DECREF(pObSet_vaAll);
@@ -926,8 +926,8 @@ VOID VmmWinLdrModule_EnrichDebugInfo(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProce
     PVMM_MAP_MODULEENTRY_DEBUGINFO pDebugInfo;
     PVMM_MAP_MODULEENTRY pe;
     POB_STRMAP psmOb = NULL;
-    DWORD i, j, k, cbMultiStr;
-    BYTE b;
+    DWORD i, cbMultiStr;
+    PBYTE pbGUID;
     CHAR szGUID[33] = { 0 };
     PE_CODEVIEW_INFO CodeViewInfo;
     VMMSTATISTICS_LOG Statistics = { 0 };
@@ -948,11 +948,11 @@ VOID VmmWinLdrModule_EnrichDebugInfo(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProce
         pe->pExDebugInfo = pDebugInfo;
         if(PE_GetCodeViewInfo(H, pProcess, pe->vaBase, NULL, &CodeViewInfo)) {
             // guid -> hex
-            for(k = 0, j = 0; k < 16; k++) {
-                b = CodeViewInfo.CodeView.Guid[k];
-                szGUID[j++] = szHEX_ALPHABET[b >> 4];
-                szGUID[j++] = szHEX_ALPHABET[b & 7];
-            }
+            pbGUID = CodeViewInfo.CodeView.Guid;
+            _snprintf_s(szGUID, _countof(szGUID), _TRUNCATE, "%08X%04X%04X%02X%02X%02X%02X%02X%02X%02X%02X",
+                *(PDWORD)(pbGUID + 0), *(PWORD)(pbGUID + 4), *(PWORD)(pbGUID + 6),
+                pbGUID[8], pbGUID[9], pbGUID[10], pbGUID[11],
+                pbGUID[12], pbGUID[13], pbGUID[14], pbGUID[15]);
             // populate ExDebugInfo
             pDebugInfo->dwAge = CodeViewInfo.CodeView.Age;
             memcpy(pDebugInfo->Guid, CodeViewInfo.CodeView.Guid, sizeof(pDebugInfo->Guid));
@@ -1732,7 +1732,7 @@ static const VMMWIN_OBJECTTYPE_NAME2OBJECT_ENTRY VMMWIN_OBJECTTYPE_NAME2OBJECT_A
 /*
 * Retrieve a pointer to a VMMWIN_OBJECT_TYPE if possible. Initialization of the
 * table takes place on first use. The table only exists in Win7+ and is is
-* dependant on PDB symbol functionality for initialization.
+* dependent on PDB symbol functionality for initialization.
 * -- H
 * -- iObjectType
 * -- return
@@ -2078,7 +2078,7 @@ typedef struct tdVMMWINHANDLE_REGHELPER {
 } VMMWINHANDLE_REGHELPER, *PVMMWINHANDLE_REGHELPER;
 
 /*
-* Helper function for VmmWinHandle_InitializeText_DoWork that fetches registry
+* Helper function for VmmWinHandle_InitializeFullText_DoWork that fetches registry
 * names provided that the underlying _CM_KEY_CONTROL_BLOCK is prefetched.
 * -- H
 * -- pSystemProcess
@@ -2172,7 +2172,7 @@ VOID VmmWinHandle_InitializeText_DoWork_FileSizeHelper(_In_ VMM_HANDLE H, _In_ P
     }
 }
 
-VOID VmmWinHandle_InitializeText_DoWork(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSystemProcess, _In_ PVMMOB_MAP_HANDLE pHandleMap)
+VOID VmmWinHandle_InitializeExtended_DoWork(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSystemProcess, _In_ PVMMOB_MAP_HANDLE pHandleMap, _In_ DWORD flags)
 {
     BOOL f, f32 = H->vmm.f32, fThreadingEnabled;
     PVMM_OFFSET po = &H->vmm.offset;
@@ -2336,6 +2336,10 @@ VOID VmmWinHandle_InitializeText_DoWork(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSy
             }
         }
     }
+    if(flags == VMM_HANDLE_FLAG_BASIC) {
+        pHandleMap->flags = VMM_HANDLE_FLAG_BASIC;
+        goto done;
+    }
     // registry key retrieve names & file device object parse
     VmmCachePrefetchPages3(H, pSystemProcess, psObDevRegPrefetch, 0x90, 0);
     for(i = 0; i < pHandleMap->cMap; i++) {
@@ -2437,6 +2441,8 @@ VOID VmmWinHandle_InitializeText_DoWork(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSy
             pe->uszText = (LPSTR)pHandleMap->pbMultiText;
         }
     }
+    pHandleMap->flags = VMM_HANDLE_FLAG_FULLTEXT;
+done:
 fail:
     Ob_DECREF(psObPrefetch);
     Ob_DECREF(psObDevRegPrefetch);
@@ -2507,13 +2513,13 @@ BOOL VmmWinHandle_InitializeCore(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess)
 }
 
 _Success_(return)
-BOOL VmmWinHandle_InitializeText(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess)
+BOOL VmmWinHandle_InitializeText(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In_ DWORD flags)
 {
     PVMM_PROCESS pObSystemProcess;
     if(pProcess->Map.pObHandle->pbMultiText) { return TRUE; }
     EnterCriticalSection(&pProcess->LockUpdate);
     if(!pProcess->Map.pObHandle->pbMultiText && (pObSystemProcess = VmmProcessGet(H, 4))) {
-        VmmWinHandle_InitializeText_DoWork(H, pObSystemProcess, pProcess->Map.pObHandle);
+        VmmWinHandle_InitializeExtended_DoWork(H, pObSystemProcess, pProcess->Map.pObHandle, flags);
         Ob_DECREF(pObSystemProcess);
     }
     LeaveCriticalSection(&pProcess->LockUpdate);
@@ -2525,14 +2531,23 @@ BOOL VmmWinHandle_InitializeText(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess)
 * extra time to initialize.
 * -- H
 * -- pProcess
-* -- fExtendedText = also fetch extended info such as handle paths/names.
+* -- flags = optional flag: VMM_HANDLE_FLAG_*
 * -- return
 */
 _Success_(return)
-BOOL VmmWinHandle_Initialize(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In_ BOOL fExtendedText)
+BOOL VmmWinHandle_Initialize(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In_ DWORD flags)
 {
-    if(pProcess->Map.pObHandle && (!fExtendedText || pProcess->Map.pObHandle->pbMultiText)) { return TRUE; }
-    return VmmWinHandle_InitializeCore(H, pProcess) && (!fExtendedText || VmmWinHandle_InitializeText(H, pProcess));
+    if(!pProcess->Map.pObHandle) {
+        VmmWinHandle_InitializeCore(H, pProcess);
+        if(!pProcess->Map.pObHandle) { return FALSE; }
+    }
+    if((flags == VMM_HANDLE_FLAG_FULLTEXT) && (pProcess->Map.pObHandle->flags < VMM_HANDLE_FLAG_FULLTEXT)) {
+        if(!VmmWinHandle_InitializeText(H, pProcess, VMM_HANDLE_FLAG_FULLTEXT)) { return FALSE; }
+    }
+    if((flags == VMM_HANDLE_FLAG_BASIC) && (pProcess->Map.pObHandle->flags < VMM_HANDLE_FLAG_BASIC)) {
+        if(!VmmWinHandle_InitializeText(H, pProcess, VMM_HANDLE_FLAG_BASIC)) { return FALSE; }
+    }
+    return (pProcess->Map.pObHandle->flags >= flags);
 }
 
 
@@ -3861,6 +3876,88 @@ BOOL VmmWinProcess_Enumerate(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSystemProcess
     return fResult;
 }
 
+/*
+* Refresh information about a single process given its PID. This is useful if
+* one wish to manually trigger a refresh of a specific process.
+* This function is thread-safe and will do appropriate locking internally.
+* -- H
+* -- dwPID = process to refresh.
+* -- return = TRUE on success, FALSE on failure.
+*/
+VOID VmmWinProcess_Enumerate_SingleProcess_Refresh(_In_ VMM_HANDLE H, _In_ DWORD dwPID)
+{
+    PVMM_OFFSET_EPROCESS po = &H->vmm.offset.EPROCESS;
+    BOOL fTotalRefresh;
+    PBYTE pbEPROCESS = NULL;
+    PVMM_PROCESS pObSystemProcess, pObProcessNew, pProcess = NULL;
+    VMMSTATISTICS_LOG Statistics = { 0 };
+    QWORD qwPEB, qwWow64Process;
+    if((H->vmm.tpSystem != VMM_SYSTEM_WINDOWS_32) && (H->vmm.tpSystem != VMM_SYSTEM_WINDOWS_64)) {
+        return;
+    }
+    VmmStatisticsLogStart(H, MID_PROCESS, LOGLEVEL_6_TRACE, NULL, &Statistics, "EPROCESS_ENUMERATE_RefreshSingleProcess");
+    EnterCriticalSection(&H->vmm.LockMaster);
+    while((pProcess = VmmProcessGetNext(H, pProcess, VMM_FLAG_PROCESS_SHOW_TERMINATED))) {
+        fTotalRefresh = (pProcess->dwPID == dwPID);
+        if(fTotalRefresh) {
+            VmmReadAlloc(H, PVMM_PROCESS_SYSTEM, pProcess->win.EPROCESS.va, &pbEPROCESS, pProcess->win.EPROCESS.cb, VMM_FLAG_ZEROPAD_ON_FAIL | VMM_FLAG_NOCACHE);
+            if(!pbEPROCESS) {
+                pbEPROCESS = LocalAlloc(LMEM_ZEROINIT, pProcess->win.EPROCESS.cb);
+                if(!pbEPROCESS) {
+                    fTotalRefresh = FALSE;
+                }
+            }
+        }
+        pObProcessNew = VmmProcessCreateEntry(
+            H,
+            fTotalRefresh,
+            pProcess->dwPID,
+            pProcess->dwPPID,
+            fTotalRefresh ? *(PDWORD)(pbEPROCESS + po->State) : pProcess->dwState,
+            pProcess->paDTB_Kernel,
+            pProcess->paDTB_UserOpt,
+            pProcess->szName,
+            pProcess->fUserOnly,
+            fTotalRefresh ? pbEPROCESS : pProcess->win.EPROCESS.pb,
+            pProcess->win.EPROCESS.cb);
+        if(fTotalRefresh) {
+            // EPROCESS
+            pObProcessNew->win.EPROCESS.va = pProcess->win.EPROCESS.va;
+            pObProcessNew->win.EPROCESS.fNoLink = pProcess->win.EPROCESS.fNoLink;
+            // PEB
+            qwPEB = H->vmm.f32 ? *(PDWORD)(pbEPROCESS + po->PEB) : *(PQWORD)(pbEPROCESS + po->PEB);
+            if(qwPEB & 0xfff) {
+                VmmLog(H, MID_PROCESS, LOGLEVEL_4_VERBOSE, "Bad PEB alignment for PID: '%i' (0x%016llx)", pProcess->dwPID, qwPEB);
+            } else {
+                pObProcessNew->win.vaPEB = qwPEB;
+            }
+            // WoW64 and PEB32
+            if(H->vmm.tpSystem == VMM_SYSTEM_WINDOWS_64) {
+                qwWow64Process = *(PQWORD)(pbEPROCESS + po->Wow64Process);
+                if(qwWow64Process) {
+                    pObProcessNew->win.fWow64 = TRUE;
+                    if(qwWow64Process & 0xffffffff00000fff) {
+                        pObProcessNew->win.vaPEB32 = (DWORD)qwPEB + (po->f64VistaOr7 ? -0x1000 : +0x1000);
+                    } else {
+                        pObProcessNew->win.vaPEB32 = (DWORD)qwWow64Process;
+                    }
+                }
+            }
+            // Clean-Up
+            LocalFree(pbEPROCESS);
+            pbEPROCESS = NULL;
+        }
+        Ob_DECREF(pObProcessNew);
+    }
+    if((pObSystemProcess = VmmProcessGet(H, 4))) {
+        VmmWinProcess_Enumerate_PostProcessing(H, pObSystemProcess);
+        Ob_DECREF(pObSystemProcess);
+    }
+    VmmProcessCreateFinish(H);
+    LeaveCriticalSection(&H->vmm.LockMaster);
+    VmmStatisticsLogEnd(H, &Statistics, "EPROCESS_ENUMERATE_RefreshSingleProcess");
+}
+
 
 
 // ----------------------------------------------------------------------------
@@ -3893,7 +3990,7 @@ POB_SET VmmWinProcess_Enumerate_FindNoLinkProcesses(_In_ VMM_HANDLE H)
     if(!(psOb = ObSet_New(H))) { goto fail; }
     if(!(pObSystemProcess = VmmProcessGet(H, 4))) { goto fail; }
     if(!VmmWin_ObjectTypeGet(H, 2) || !(tpProcess = H->vmm.ObjectTypeTable.tpProcess)) { goto fail; }
-    if(!VmmMap_GetHandle(H, pObSystemProcess, &pObHandleMap, FALSE)) { goto fail; }
+    if(!VmmMap_GetHandle(H, pObSystemProcess, &pObHandleMap, VMM_HANDLE_FLAG_CORE)) { goto fail; }
     // 2: Prefetch object headers
     for(i = 0; i < pObHandleMap->cMap; i++) {
         ObSet_Push_PageAlign(psOb, pObHandleMap->pMap[i].vaObject - cbHdr, cbHdr);
@@ -3981,49 +4078,57 @@ VOID VmmWin_ListTraversePrefetch(
 ) {
     WORD idData;
     QWORD vaData, exvaData;
-    DWORD cbReadData;
     PBYTE pbData = NULL;
     QWORD vaFLink, vaBLink;
-    POB_SET pObSet_vaAll = NULL, pObSet_vaTry1 = NULL, pObSet_vaTry2 = NULL, pObSet_vaValid = NULL;
+    POB_SET pObSet_vaAll = NULL, pObSet_vaNew = NULL, pObSet_exvaTry1 = NULL, pObSet_exvaTry2 = NULL, pObSet_exvaValid = NULL;
     BOOL fValidEntry, fValidFLink, fValidBLink, fTry1;
-    // 1: Prefetch any addresses stored in optional address container
+    PVMMOB_SCATTER hObScatter = NULL;
+    // 1: Prefetch any addresses stored in optional address container into the scatter handle.
+    if(!(hObScatter = VmmScatter_Initialize(H, 0))) { goto fail; }
     pObSet_vaAll = ObContainer_GetOb(pPrefetchAddressContainer);
-    VmmCachePrefetchPages3(H, pProcess, pObSet_vaAll, cbData, 0);
+    VmmScatter_Prepare3(hObScatter, pObSet_vaAll, cbData);
     Ob_DECREF_NULL(&pObSet_vaAll);
-    // 2: Prepare/Allocate and set up initial entry
+    // 2: Prepare/Allocate and set up initial entry addresses.
     if(!(pObSet_vaAll = ObSet_New(H))) { goto fail; }
-    if(!(pObSet_vaTry1 = ObSet_New(H))) { goto fail; }
-    if(!(pObSet_vaTry2 = ObSet_New(H))) { goto fail; }
-    if(!(pObSet_vaValid = ObSet_New(H))) { goto fail; }
+    if(!(pObSet_vaNew = ObSet_New(H))) { goto fail; }
+    if(!(pObSet_exvaTry1 = ObSet_New(H))) { goto fail; }
+    if(!(pObSet_exvaTry2 = ObSet_New(H))) { goto fail; }
+    if(!(pObSet_exvaValid = ObSet_New(H))) { goto fail; }
     if(!(pbData = LocalAlloc(0, cbData))) { goto fail; }
     while(cvaDataStart) {
         cvaDataStart--;
-        if(ObSet_Push(pObSet_vaAll, pvaDataStart[cvaDataStart])) {
-            ObSet_Push(pObSet_vaTry1, VMMWIN_LISTTRAVERSEPREFETCH_EXVA_CREATE(pvaDataStart[cvaDataStart], cvaDataStart));
-        }
+        vaData = pvaDataStart[cvaDataStart];
+        ObSet_Push(pObSet_vaAll, vaData);
+        ObSet_Push(pObSet_vaNew, vaData);
+        ObSet_Push(pObSet_exvaTry1, VMMWIN_LISTTRAVERSEPREFETCH_EXVA_CREATE(vaData, cvaDataStart));
+        VmmScatter_Prepare(hObScatter, vaData, cbData);
     }
-    // 3: Initial list walk
+    // 3: Main list walk
+    VmmScatter_Execute(hObScatter, pProcess);
     fTry1 = TRUE;
     while(TRUE) {
         if(fTry1) {
-            exvaData = ObSet_Pop(pObSet_vaTry1);
-            if(!exvaData && (0 == ObSet_Size(pObSet_vaTry2))) { break; }
+            exvaData = ObSet_Pop(pObSet_exvaTry1);
             if(!exvaData) {
-                VmmCachePrefetchPages3(H, pProcess, pObSet_vaAll, cbData, 0);
+                if((0 == ObSet_Size(pObSet_exvaTry2))) { break; }
+                VmmCachePrefetchPages3(H, pProcess, pObSet_vaNew, cbData, 0);
+                ObSet_Clear(pObSet_vaNew);
                 fTry1 = FALSE;
                 continue;
             }
             vaData = VMMWIN_LISTTRAVERSEPREFETCH_EXVA_GET_VA(exvaData);
             idData = VMMWIN_LISTTRAVERSEPREFETCH_EXVA_GET_ID(exvaData);
-            VmmReadEx(H, pProcess, vaData, pbData, cbData, &cbReadData, VMM_FLAG_FORCECACHE_READ);
-            if(cbReadData != cbData) {
-                ObSet_Push(pObSet_vaTry2, exvaData);
+            if(!(VmmScatter_Read(hObScatter, vaData, cbData, pbData) || VmmRead2(H, pProcess, vaData, pbData, cbData, VMM_FLAG_FORCECACHE_READ))) {
+                ObSet_Push(pObSet_exvaTry2, exvaData);
                 continue;
             }
         } else {
-            exvaData = ObSet_Pop(pObSet_vaTry2);
-            if(!exvaData && (0 == ObSet_Size(pObSet_vaTry1))) { break; }
-            if(!exvaData) { fTry1 = TRUE; continue; }
+            exvaData = ObSet_Pop(pObSet_exvaTry2);
+            if(!exvaData) {
+                if((0 == ObSet_Size(pObSet_exvaTry1))) { break; }
+                fTry1 = TRUE;
+                continue;
+            }
             vaData = VMMWIN_LISTTRAVERSEPREFETCH_EXVA_GET_VA(exvaData);
             idData = VMMWIN_LISTTRAVERSEPREFETCH_EXVA_GET_ID(exvaData);
             if(!VmmRead(H, pProcess, vaData, pbData, cbData)) { continue; }
@@ -4032,7 +4137,7 @@ VOID VmmWin_ListTraversePrefetch(
         vaBLink = f32 ? *(PDWORD)(pbData + oListStart + 4) : *(PQWORD)(pbData + oListStart + 8);
         if(pfnCallback_Pre) {
             fValidEntry = FALSE; fValidFLink = FALSE; fValidBLink = FALSE;
-            pfnCallback_Pre(H, pProcess, ctx, vaData, pbData, cbData, vaFLink, vaBLink, pObSet_vaAll, &fValidEntry, &fValidFLink, &fValidBLink, idData);
+            pfnCallback_Pre(H, pProcess, ctx, vaData, pbData, cbData, vaFLink, vaBLink, pObSet_vaNew, &fValidEntry, &fValidFLink, &fValidBLink, idData);
         } else {
             if(f32) {
                 fValidFLink = !(vaFLink & 0x03);
@@ -4044,39 +4149,48 @@ VOID VmmWin_ListTraversePrefetch(
             fValidEntry = fValidFLink || fValidBLink;
         }
         if(fValidEntry) {
-            ObSet_Push(pObSet_vaValid, exvaData);
+            ObSet_Push(pObSet_exvaValid, exvaData);
         }
         vaFLink -= oListStart;
         vaBLink -= oListStart;
         if(fValidFLink && ObSet_Push(pObSet_vaAll, vaFLink)) {
-            ObSet_Push(pObSet_vaTry1, VMMWIN_LISTTRAVERSEPREFETCH_EXVA_CREATE(vaFLink, idData));
+            ObSet_Push(pObSet_vaNew, vaFLink);
+            ObSet_Push(pObSet_exvaTry1, VMMWIN_LISTTRAVERSEPREFETCH_EXVA_CREATE(vaFLink, idData));
         }
         if(fValidBLink && ObSet_Push(pObSet_vaAll, vaBLink)) {
-            ObSet_Push(pObSet_vaTry1, VMMWIN_LISTTRAVERSEPREFETCH_EXVA_CREATE(vaBLink, idData));
+            ObSet_Push(pObSet_vaNew, vaBLink);
+            ObSet_Push(pObSet_exvaTry1, VMMWIN_LISTTRAVERSEPREFETCH_EXVA_CREATE(vaBLink, idData));
         }
     }
-    // 4: Prefetch additional gathered addresses into cache.
-    VmmCachePrefetchPages3(H, pProcess, pObSet_vaAll, cbData, 0);
-    // 5: 2nd main list walk. Call into optional pfnCallback_Post to do the main
+    // 4: 2nd main list walk. Call into optional pfnCallback_Post to do the main
     //    processing of the list items.
     if(pfnCallback_Post) {
-        while((exvaData = ObSet_Pop(pObSet_vaValid))) {
+        exvaData = 0;
+        VmmScatter_Clear(hObScatter);
+        while((exvaData = ObSet_GetNext(pObSet_exvaValid, exvaData))) {
+            vaData = VMMWIN_LISTTRAVERSEPREFETCH_EXVA_GET_VA(exvaData);
+            VmmScatter_Prepare(hObScatter, vaData, cbData);
+        }
+        VmmScatter_Execute(hObScatter, pProcess);
+        while((exvaData = ObSet_Pop(pObSet_exvaValid))) {
             vaData = VMMWIN_LISTTRAVERSEPREFETCH_EXVA_GET_VA(exvaData);
             idData = VMMWIN_LISTTRAVERSEPREFETCH_EXVA_GET_ID(exvaData);
-            if(VmmRead(H, pProcess, vaData, pbData, cbData)) {
+            if(VmmScatter_Read(hObScatter, vaData, cbData, pbData)) {
                 pfnCallback_Post(H, pProcess, ctx, vaData, pbData, cbData, idData);
             }
         }
     }
-    // 6: Store/Update the optional container with the newly prefetch addresses (if possible and desirable).
+    // 5: Store/Update the optional container with the newly prefetch addresses (if possible and desirable).
     if(pPrefetchAddressContainer && H->dev.fVolatile && H->vmm.ThreadProcCache.fEnabled) {
         ObContainer_SetOb(pPrefetchAddressContainer, pObSet_vaAll);
     }
 fail:
     // 7: Cleanup
-    Ob_DECREF_NULL(&pObSet_vaAll);
-    Ob_DECREF_NULL(&pObSet_vaTry1);
-    Ob_DECREF_NULL(&pObSet_vaTry2);
-    Ob_DECREF_NULL(&pObSet_vaValid);
+    Ob_DECREF(hObScatter);
+    Ob_DECREF(pObSet_vaAll);
+    Ob_DECREF(pObSet_vaNew);
+    Ob_DECREF(pObSet_exvaTry1);
+    Ob_DECREF(pObSet_exvaTry2);
+    Ob_DECREF(pObSet_exvaValid);
     LocalFree(pbData);
 }

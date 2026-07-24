@@ -12,7 +12,7 @@
 //   functions whilst linux in general should use UTF-8 functions only. This
 //   example use UTF-8 functions throughout to have the best compatibility.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -27,7 +27,7 @@
 #pragma comment(lib, "vmm")
 
 #endif /* _WIN32 */
-#ifdef LINUX
+#if defined(LINUX) || defined(MACOS)
 
 #include <leechcore.h>
 #include <vmmdll.h>
@@ -60,7 +60,7 @@ VOID LocalFree(HANDLE hMem)
     free(hMem);
 }
 
-#endif /* LINUX */
+#endif /* LINUX || MACOS */
 
 // ----------------------------------------------------------------------------
 // Initialize from type of device, FILE or  FPGA.
@@ -79,7 +79,7 @@ VOID ShowKeyPress()
 {
     printf("PRESS ANY KEY TO CONTINUE ...\n");
     Sleep(250);
-    //_getch();
+    _getch();
 }
 
 VOID PrintHexAscii(_In_ PBYTE pb, _In_ DWORD cb)
@@ -208,7 +208,7 @@ int main(_In_ int argc, _In_ char* argv[])
     BOOL result;
     NTSTATUS nt;
     DWORD i, j, cbRead, dwPID;
-    DWORD dw = 0;
+    DWORD cch = 0, dw = 0;
     QWORD va;
     BYTE pbPage1[0x1000], pbPage2[0x1000];
     CHAR usz[MAX_PATH];
@@ -712,7 +712,7 @@ int main(_In_ int argc, _In_ char* argv[])
             return 1;
         }
         printf("SUCCESS: VMMDLL_Map_GetThread_CallstackU\n");
-        printf(pThreadCallstack->uszText);
+        printf("%s", pThreadCallstack->uszText);
         printf("-------------\n");
         for(j = 0; j < pThreadCallstack->cMap; j++) {
             pThreadCallstackEntry = &pThreadCallstack->pMap[j];
@@ -950,8 +950,8 @@ int main(_In_ int argc, _In_ char* argv[])
         printf("         MODULE_NAME                                 BASE             SIZE     ENTRY\n");
         printf("         ======================================================================================\n");
         printf(
-            "         %-40.40S %i %016llx %08x %016llx\n",
-            L"kernel32.dll",
+            "         %-40.40s %i %016llx %08x %016llx\n",
+            "kernel32.dll",
             pModuleEntryKernel32->fWoW64 ? 32 : 64,
             pModuleEntryKernel32->vaBase,
             pModuleEntryKernel32->cbImageSize,
@@ -1324,6 +1324,72 @@ int main(_In_ int argc, _In_ char* argv[])
     }
 
 
+    // Read 0x100 bytes from offset 0x1000 from the 1st located registry hive memory space
+    printf("------------------------------------------------------------\n");
+    printf("# Read 0x100 bytes from offset 0x1000 of registry hive      \n");
+    ShowKeyPress();
+    printf("CALL:    VMMDLL_WinReg_HiveReadEx\n");
+    result = VMMDLL_WinReg_HiveReadEx(hVMM, pWinRegHives[0].vaCMHIVE, 0x1000, pbPage1, 0x100, NULL, 0);
+    if(result) {
+        printf("SUCCESS: VMMDLL_WinReg_HiveReadEx\n");
+        PrintHexAscii(pbPage1, 0x100);
+    } else {
+        printf("FAIL:    VMMDLL_WinReg_HiveReadEx\n");
+        return 1;
+    }
+
+
+    // Enumerate keys under HKLM\SOFTWARE
+    printf("------------------------------------------------------------\n");
+    printf("# Registry: Enumerate keys under 'HKLM\\SOFTWARE'           \n");
+    printf("------------------------------------------------------------\n");
+    ShowKeyPress();
+    i = 0;
+    while(TRUE) {
+        cch = sizeof(usz);
+        result = VMMDLL_WinReg_EnumKeyExU(hVMM, "HKLM\\SOFTWARE", i, usz, &cch, NULL);
+        if(!result) { break; }
+        printf("%2i RegKey='%s'\n", i, usz);
+        i++;
+    }
+
+
+    // Enumerate values under HKLM\SOFTWARE
+    printf("------------------------------------------------------------\n");
+    printf("# Registry: Enumerate values under--------------------------\n");
+    printf("        'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run'\n");
+    printf("------------------------------------------------------------\n");
+    ShowKeyPress();
+    i = 0;
+    while(TRUE) {
+        cch = sizeof(usz);
+        result = VMMDLL_WinReg_EnumValueU(hVMM, "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", i, usz, &cch, NULL, NULL, NULL);
+        if(!result) { break; }
+        printf("%2i RegValue='%s'\n", i, usz);
+        i++;
+    }
+
+
+    // Query individual registry values under HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ProgramFilesDir
+    printf("------------------------------------------------------------\n");
+    printf("# Registry: Query a single registry value-------------------\n");
+    printf("  'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ProgramFilesDir'\n");
+    printf("  Registry stores most string values in UTF-16 LE, WCHAR.   \n");
+    printf("------------------------------------------------------------\n");
+    ShowKeyPress();
+    dw = 0;
+    cch = sizeof(pbPage1) - 4;
+    ZeroMemory(pbPage1, sizeof(pbPage1));
+    result = VMMDLL_WinReg_QueryValueExU(hVMM, "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ProgramFilesDir", &dw, pbPage1, &cch);
+    if(!result) {
+        printf("FAIL:    VMMDLL_WinReg_QueryValueExU\n");
+        return 1;
+    } else {
+        printf("SUCCESS: VMMDLL_WinReg_QueryValueExU\n");
+        printf("         Value='%S' ByteSize=%i Type=%i\n", (LPWSTR)pbPage1, cch, dw);
+    }
+
+
     // Retrieve Physical Memory Map
     printf("------------------------------------------------------------\n");
     printf("# Retrieve Physical Memory Map                              \n");
@@ -1346,21 +1412,6 @@ int main(_In_ int argc, _In_ char* argv[])
             printf("%04i %12llx - %12llx\n", i, pPhysMemMap->pMap[i].pa, pPhysMemMap->pMap[i].pa + pPhysMemMap->pMap[i].cb - 1);
         }
         VMMDLL_MemFree(pPhysMemMap); pPhysMemMap = NULL;
-    }
-
-
-    // Read 0x100 bytes from offset 0x1000 from the 1st located registry hive memory space
-    printf("------------------------------------------------------------\n");
-    printf("# Read 0x100 bytes from offset 0x1000 of registry hive      \n");
-    ShowKeyPress();
-    printf("CALL:    VMMDLL_WinReg_HiveReadEx\n");
-    result = VMMDLL_WinReg_HiveReadEx(hVMM, pWinRegHives[0].vaCMHIVE, 0x1000, pbPage1, 0x100, NULL, 0);
-    if(result) {
-        printf("SUCCESS: VMMDLL_WinReg_HiveReadEx\n");
-        PrintHexAscii(pbPage1, 0x100);
-    } else {
-        printf("FAIL:    VMMDLL_WinReg_HiveReadEx\n");
-        return 1;
     }
 
 

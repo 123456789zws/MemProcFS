@@ -136,9 +136,11 @@ EXPORTS
     VMMDLL_PdbTypeChildOffset
     
     VMMDLL_ForensicFileAppend
+    VMMDLL_LicensedTo
     VMMDLL_UtilFillHexAscii
     VMMDLL_YaraSearch
 
     VMMDLL_Log
     VMMDLL_LogEx
+    VMMDLL_LogCallback
     

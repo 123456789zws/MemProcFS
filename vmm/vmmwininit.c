@@ -2,11 +2,12 @@
 //                systems. Contains functions for detecting DTB and Memory Model
 //                as well as the Windows kernel base and core functionality.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
 #include "vmm.h"
+#include "vmmex.h"
 #include "pe.h"
 #include "pdb.h"
 #include "util.h"
@@ -47,9 +48,16 @@ VOID VmmWinInit_TryInitializeThreading(_In_ VMM_HANDLE H)
         PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_ETHREAD", "Win32StartAddress", &pti->oWin32StartAddress) &&
         PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_ETHREAD", "ThreadListEntry", &pti->oThreadListEntry) &&
         PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_ETHREAD", "Cid", &pti->oCid) &&
-        PDB_GetTypeSize(H, PDB_HANDLE_KERNEL, "_ETHREAD", &cbEThread) &&
-        (PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "Rip", &pti->oTrapRip) || PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "Eip", &pti->oTrapRip)) &&
-        (PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "Rsp", &pti->oTrapRsp) || PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "HardwareEsp", &pti->oTrapRsp));
+        PDB_GetTypeSize(H, PDB_HANDLE_KERNEL, "_ETHREAD", &cbEThread);
+    if(H->vmm.f32) {
+        f = f &&
+            PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "Eip", &pti->oTrapRip) &&
+            PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "HardwareEsp", &pti->oTrapRsp);
+    } else {
+        f = f &&
+            PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "Rip", &pti->oTrapRip) &&
+            PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTRAP_FRAME", "Rsp", &pti->oTrapRsp);
+    }
     PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTHREAD", "Process", &pti->oProcessOpt);                // optional - does not exist in xp.
     PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_KTHREAD", "Running", &pti->oRunningOpt);                // optional - does not exist in vista/xp.
     PDB_GetTypeChildOffsetShort(H, PDB_HANDLE_KERNEL, "_ETHREAD", "ClientSecurity", &pti->oClientSecurityOpt);  // optional - does not exist in xp.
@@ -178,6 +186,10 @@ VOID VmmWinInit_TryInitializeKernelOptionalValues(_In_ VMM_HANDLE H)
     // pfn database & pfn subsystem initialize
     if(!H->vmm.kernel.opt.vaPfnDatabase) {
         PDB_GetSymbolPTR(H, PDB_HANDLE_KERNEL, "MmPfnDatabase", pObSystemProcess, &H->vmm.kernel.opt.vaPfnDatabase);
+    }
+    // PsActiveProcessHead
+    if(!H->vmm.kernel.opt.vaPsActiveProcessHead) {
+        PDB_GetSymbolAddress(H, PDB_HANDLE_KERNEL, "PsActiveProcessHead", &H->vmm.kernel.opt.vaPsActiveProcessHead);
     }
     // PsLoadedModuleListExp
     if(!H->vmm.kernel.opt.vaPsLoadedModuleListExp) {
@@ -328,7 +340,7 @@ VOID VmmWinInit_FindNtosScan64_SmallPageWalk_DoWork(_In_ VMM_HANDLE H, _In_ QWOR
         if(!VmmTlbPageTableVerify(H, pObPTEs->pb, paTable, TRUE)) { goto finish; }
         vaBase = 0;
     }
-    if(H->vmm.tpMemoryModel == VMMDLL_MEMORYMODEL_X64) {
+    if(H->vmm.tpMemoryModel == VMM_MEMORYMODEL_X64) {
         for(i = 0; i < 512; i++) {
             // address in range
             vaCurrent = vaBase + (i << PML_REGION_SIZE[iPML]);
@@ -351,7 +363,7 @@ VOID VmmWinInit_FindNtosScan64_SmallPageWalk_DoWork(_In_ VMM_HANDLE H, _In_ QWOR
             if(pte & 0x80) { continue; }                        // PS (large page) -> NOT VALID
             VmmWinInit_FindNtosScan64_SmallPageWalk_DoWork(H, pte & 0x0000fffffffff000, vaCurrent, vaMin, vaMax, iPML - 1, psvaKernelCandidates);
         }
-    } else if(H->vmm.tpMemoryModel == VMMDLL_MEMORYMODEL_ARM64) {
+    } else if(H->vmm.tpMemoryModel == VMM_MEMORYMODEL_ARM64) {
         for(i = 0; i < 512; i++) {
             // address in range
             vaCurrent = vaBase + (i << PML_REGION_SIZE[iPML]);
@@ -1068,9 +1080,9 @@ BOOL VmmWinInit_VersionNumber(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSystemProces
         }
         return TRUE;
     }
-    // 3: From PEB crss.exe / lsass.exe / winlogon.exe:
+    // 3: From PEB csrss.exe / lsass.exe / winlogon.exe:
     while((pObProcess = VmmProcessGetNext(H, pObProcess, 0))) {
-        if(!strcmp("crss.exe", pObProcess->szName) || !strcmp("lsass.exe", pObProcess->szName) || !strcmp("winlogon.exe", pObProcess->szName)) {
+        if(!strcmp("csrss.exe", pObProcess->szName) || !strcmp("lsass.exe", pObProcess->szName) || !strcmp("winlogon.exe", pObProcess->szName)) {
             if(VmmWinInit_VersionNumberFromProcess(H, pObProcess)) {
                 Ob_DECREF(pObProcess);
                 return TRUE;
@@ -1372,6 +1384,10 @@ BOOL VmmWinInit_TryInitialize(_In_ VMM_HANDLE H, _In_opt_ QWORD paDTBOpt)
         if(!VmmWinInit_DTB_Validate(H, paDTBOpt)) {
             VmmLog(H, MID_CORE, LOGLEVEL_WARNING, "Unable to verify crash-dump supplied DTB. (0x%016llx) #1", paDTBOpt);
         }
+    }
+    if(!H->vmm.kernel.paDTB && H->cfg.DTBRange.paStart && !VmmEx_DTB_FindValidate_UserDTBRange(H)) {
+        VmmLog(H, MID_CORE, LOGLEVEL_CRITICAL, "Initialization Failed. Unable to locate valid DTB. #2");
+        goto fail;
     }
     if(!H->vmm.kernel.paDTB && !VmmWinInit_DTB_FindValidate(H)) {
         VmmLog(H, MID_CORE, LOGLEVEL_CRITICAL, "Initialization Failed. Unable to locate valid DTB. #2");

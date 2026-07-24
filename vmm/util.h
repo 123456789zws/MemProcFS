@@ -1,6 +1,6 @@
 // util.h : definitions of various utility functions.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __UTIL_H__
@@ -71,6 +71,16 @@ BOOL Util_DecompressGz(_In_ PBYTE pbCompressed, _In_ DWORD cbCompressed, _In_ DW
 */
 _Success_(return)
 BOOL Util_DecompressGzToStringAlloc(_In_ PBYTE pbCompressed, _In_ DWORD cbCompressed, _In_ DWORD cbDecompressed, _Out_ LPSTR *pszDecompressed);
+
+/*
+* Read a file given by its utf-8 full path into a newly allocated buffer.
+* CALLER LocalFree: *ppbFile
+* -- uszPathFile
+* -- ppbFile
+* -- pcbFile
+* -- return
+*/
+BOOL Util_ReadFileU(_In_ LPCSTR uszPathFile, _Out_ PBYTE *ppbFile, _Out_ PDWORD pcbFile);
 
 /*
 * Delete a file denoted by its utf-8 full path.
@@ -165,9 +175,9 @@ VOID Util_GetPathDll(_Out_writes_(MAX_PATH) PCHAR szPath, _In_opt_ HMODULE hModu
 /*
 * Retrieve the operating system path of the directory which is containing this:
 * .dll/.so file.
-* -- szPath
+* -- uszPath
 */
-VOID Util_GetPathLib(_Out_writes_(MAX_PATH) PCHAR szPath);
+VOID Util_GetPathLib(_Out_writes_(MAX_PATH) PCHAR uszPath);
 
 /*
 * Duplicates a string.
@@ -181,6 +191,14 @@ LPSTR Util_StrDupA(_In_opt_ LPCSTR sz);
 * Retrieve the current time as FILETIME.
 */
 QWORD Util_FileTimeNow();
+
+/*
+* Convert FILETIME to EPOCH.
+* -- ft
+* -- return
+*/
+_Success_(return != 0)
+QWORD Util_FileTimeToEpoch(_In_ QWORD ft);
 
 /*
 * Convert a FILETIME (ft) into a human readable string.
@@ -283,6 +301,7 @@ NTSTATUS Util_VfsReadFile_FromDWORD(_In_ DWORD dwValue, _Out_writes_to_(cb, *pcb
 NTSTATUS Util_VfsReadFile_FromBOOL(_In_ BOOL fValue, _Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset);
 NTSTATUS Util_VfsReadFile_FromFILETIME(_In_ QWORD ftValue, _Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset);
 NTSTATUS Util_VfsReadFile_FromResource(_In_ VMM_HANDLE H, _In_ LPWSTR wszResourceName, _Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset);
+NTSTATUS Util_VfsReadFile_FromResourceEncrypted(_In_ VMM_HANDLE H, _In_ LPWSTR wszResourceName, _Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset);
 NTSTATUS Util_VfsReadFile_usnprintf_ln(_Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset, _In_ QWORD cszLineLength, _In_z_ _Printf_format_string_ LPCSTR uszFormat, ...);
 NTSTATUS Util_VfsWriteFile_BOOL(_Inout_ PBOOL pfTarget, _In_reads_(cb) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbWrite, _In_ QWORD cbOffset);
 NTSTATUS Util_VfsWriteFile_09(_Inout_ PDWORD pdwTarget, _In_reads_(cb) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbWrite, _In_ QWORD cbOffset);

@@ -1,6 +1,6 @@
 // vmmlog.h : definitions of the vmm logging functionality.
 //
-// (c) Ulf Frisk, 2022-2024
+// (c) Ulf Frisk, 2022-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __VMMLOG_H__
@@ -56,7 +56,8 @@ typedef enum tdVMMLOG_LEVEL {
 #define MID_POOL         0x80000021
 #define MID_THREAD       0x80000022
 #define MID_THREADCS     0x80000023
-#define MID_MAX          0x80000023
+#define MID_LICENSE      0x80000024
+#define MID_MAX          0x80000024
 
 static LPCSTR VMMLOG_MID_STR[] = {
     [MID_NA       & 0xFF] = "N/A",
@@ -97,6 +98,7 @@ static LPCSTR VMMLOG_MID_STR[] = {
     [MID_POOL     & 0xFF] = "POOL",
     [MID_THREAD   & 0xFF] = "THREAD",
     [MID_THREADCS & 0xFF] = "THREADCS",
+    [MID_LICENSE  & 0xFF] = "LICENSE",
 };
 
 /*
@@ -105,6 +107,13 @@ static LPCSTR VMMLOG_MID_STR[] = {
 * -- H
 */
 VOID VmmLog_LevelRefresh(_In_ VMM_HANDLE H);
+
+/*
+* Set/unset a log callback function and refresh logging levels.
+* -- H
+* -- pfnCB
+*/
+VOID VmmLog_SetCB(_In_ VMM_HANDLE H, _In_opt_ VMMDLL_LOG_CALLBACK_PFN pfnCB);
 
 /*
 * Close and clean-up internal logging data structures.

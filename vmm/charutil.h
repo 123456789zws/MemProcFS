@@ -1,6 +1,6 @@
 // charutil.h : definitions of various character/string utility functions.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __CHARUTIL_H__
@@ -324,7 +324,7 @@ LPCSTR CharUtil_SplitLast(_In_ LPCSTR usz, _In_ CHAR ch, _Out_writes_(cbu1) LPST
 
 /*
 * Split a string into a list of strings at the delimiter characters.
-* The function allocates neccessary memory for the result array and its values.
+* The function allocates necessary memory for the result array and its values.
 * CALLER LocalFree: *ppuszArray
 * -- usz = utf-8/ascii string to split.
 * -- chDelimiter = character to split at.
@@ -454,6 +454,16 @@ BOOL CharUtil_StrStartsWith(_In_opt_ LPCSTR usz, _In_opt_ LPCSTR uszStartsWith, 
 * -- return
 */
 BOOL CharUtil_StrEquals(_In_opt_ LPCSTR usz, _In_opt_ LPCSTR usz2, _In_ BOOL fCaseInsensitive);
+
+/*
+* Checks if a string contains a certain substring, if found return the pointer
+* to the 1st start of the substring in the original string.
+* -- usz
+* -- uszNeedle
+* -- fCaseInsensitive
+* -- return = pointer to the start of the substring in usz, or NULL if not found.
+*/
+LPCSTR CharUtil_StrContains(_In_opt_ LPCSTR usz, _In_opt_ LPCSTR uszSubString, _In_ BOOL fCaseInsensitive);
 
 /*
 * Compare a wide-char string to a utf-8 string.

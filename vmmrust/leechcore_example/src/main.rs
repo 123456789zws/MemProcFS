@@ -7,7 +7,7 @@
 // For more general LeechCore useage (possibly together with MemProcFS) check
 // out the MemProcFS example project.
 //
-// (c) Ulf Frisk, 2023-2024
+// (c) Ulf Frisk, 2023-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 // https://github.com/ufrisk/LeechCore
 //
@@ -35,6 +35,8 @@ pub fn leechcore_pcie_example() -> ResultEx<()> {
     let lc_lib_path;
     if cfg!(windows) {
         lc_lib_path = "C:\\Github\\MemProcFS-dev\\files\\leechcore.dll";
+    } else if cfg!(target_os = "macos") {
+        lc_lib_path = "/Users/user/memprocfs/vmm.dylib";
     } else {
         lc_lib_path = "/home/user/memprocfs/vmm.so";
     }

@@ -1,7 +1,7 @@
 // vmmwin.h : definitions related to windows operating system and processes.
 // parsing of virtual memory. Windows related features only.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __VMMWIN_H__
@@ -117,16 +117,16 @@ BOOL VmmWinToken_Initialize(
 * extra time to initialize.
 * -- H
 * -- pProcess
-* -- fExtendedText = also fetch extended info such as handle paths/names.
+* -- flags = optional flag: VMM_HANDLE_FLAG_*
 * -- return
 */
 _Success_(return)
-BOOL VmmWinHandle_Initialize(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In_ BOOL fExtendedText);
+BOOL VmmWinHandle_Initialize(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In_ DWORD flags);
 
 /*
 * Retrieve a pointer to a VMMWIN_OBJECT_TYPE if possible. Initialization of the
 * table takes place on first use. The table only exists in Win7+ and is is
-* dependant on PDB symbol functionality for initialization.
+* dependent on PDB symbol functionality for initialization.
 * -- H
 * -- iObjectType
 * -- return
@@ -164,6 +164,16 @@ BOOL VmmWinProcess_Enumerate(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pSystemProcess
 * -- return = Set of vaEPROCESS if no-link addresses exist. NULL otherwise.
 */
 POB_SET VmmWinProcess_Enumerate_FindNoLinkProcesses(_In_ VMM_HANDLE H);
+
+/*
+* Refresh information about a single process given its PID. This is useful if
+* one wish to manually trigger a refresh of a specific process.
+* This function is thread-safe and will do appropriate locking internally.
+* -- H
+* -- dwPID = process to refresh.
+* -- return = TRUE on success, FALSE on failure.
+*/
+VOID VmmWinProcess_Enumerate_SingleProcess_Refresh(_In_ VMM_HANDLE H, _In_ DWORD dwPID);
 
 typedef VOID(*VMMWIN_LISTTRAVERSE_PRE_CB)(
     _In_ VMM_HANDLE H,

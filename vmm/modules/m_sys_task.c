@@ -6,7 +6,7 @@
 // 
 // The scheduled tasks module is supported on Windows 8.0 and above.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -731,7 +731,7 @@ VOID MSysTask_Close(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP)
 VOID M_SysTask_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if((pRI->tpSystem != VMM_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMM_SYSTEM_WINDOWS_32)) { return; }
+    if((pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_32)) { return; }
     if(pRI->sysinfo.dwVersionBuild < 9200) { return; }                      // WIN8+ supported
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\sys\\tasks");               // module name
     pRI->reg_info.fRootModule = TRUE;                                       // module shows in root directory

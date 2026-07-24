@@ -1,6 +1,6 @@
 // vmmwinpool.h : declarations of functionality related to kernel pools.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 

@@ -1,6 +1,6 @@
 // vmmlog.c : implementation of the vmm logging functionality.
 //
-// (c) Ulf Frisk, 2022-2024
+// (c) Ulf Frisk, 2022-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #include "vmmlog.h"
@@ -29,7 +29,9 @@ typedef struct tdVMMLOG_MODULE_MODULEINFO {
 
 typedef struct tdVMMLOG_CONTEXT {
     BOOL fFileFlush;
-    FILE* pFile;
+    FILE* pFile;                        // optional log file handle.
+    VMMDLL_LOG_CALLBACK_PFN pfnCB;      // optional log callback function.
+    SRWLOCK LockSRWCB;                  // lock for callback function.
     VMMLOG_LEVEL dwLevelD;      // log level display (default)
     VMMLOG_LEVEL dwLevelF;      // log level file    (default)
     VMMLOG_LEVEL dwLevelMID;    // max log level of all module specific overrides
@@ -158,6 +160,7 @@ VOID VmmLog_LevelRefresh(_In_ VMM_HANDLE H)
     if(!ctxLog) {
         H->log = LocalAlloc(LMEM_ZEROINIT, sizeof(VMMLOG_CONTEXT));
         if(!(ctxLog = H->log)) { return; }
+        H->log->pfnCB = H->cfg.pfnLogCallback;
         for(MID = MID_NA; MID <= MID_MAX; MID++) {
             pmi = VmmLog_GetModuleInfo(H, MID);
             pmi->MID = MID;
@@ -188,7 +191,7 @@ VOID VmmLog_LevelRefresh(_In_ VMM_HANDLE H)
     if(H->cfg.szLogFile[0] && !ctxLog->pFile) {
         ctxLog->pFile = _fsopen(H->cfg.szLogFile, "a", 0x20 /* _SH_DENYWR */);
     }
-    ctxLog->dwLevelF = ctxLog->pFile ? ctxLog->dwLevelD : LOGLEVEL_NONE;
+    ctxLog->dwLevelF = (ctxLog->pFile || ctxLog->pfnCB) ? ctxLog->dwLevelD : LOGLEVEL_NONE;
     // new settings (specified in -loglevel parameter):
     if(!H->cfg.szLogLevel[0]) { return; }
     strncpy_s(szTokenBuffer, sizeof(szTokenBuffer), H->cfg.szLogLevel, _TRUNCATE);
@@ -203,7 +206,7 @@ VOID VmmLog_LevelRefresh(_In_ VMM_HANDLE H)
         }
         // parse file or display (default):
         if((szToken[0] == 'f') && (szToken[1] == ':')) {
-            if(!ctxLog->pFile) { continue; }
+            if(!ctxLog->pFile && !ctxLog->pfnCB) { continue; }
             fDisplay = FALSE;
             szToken += 2;
         } else {
@@ -254,6 +257,20 @@ VOID VmmLog_LevelRefresh(_In_ VMM_HANDLE H)
             }
         }
     }
+}
+
+/*
+* Set/unset a log callback function and refresh logging levels.
+* -- H
+* -- pfnCB
+*/
+VOID VmmLog_SetCB(_In_ VMM_HANDLE H, _In_opt_ VMMDLL_LOG_CALLBACK_PFN pfnCB)
+{
+    if(!H->log) { return; }
+    AcquireSRWLockExclusive(&H->log->LockSRWCB);
+    H->log->pfnCB = pfnCB;
+    VmmLog_LevelRefresh(H);
+    ReleaseSRWLockExclusive(&H->log->LockSRWCB);
 }
 
 /*
@@ -350,11 +367,11 @@ BOOL VmmLogIsActive(_In_ VMM_HANDLE H, _In_ VMM_MODULE_ID MID, _In_ VMMLOG_LEVEL
     PVMMLOG_CONTEXT_MODULEINFO pmi;
     BOOL fD = FALSE, fF = FALSE;
     if(!ctxLog) { return FALSE; }
-    // sanity checks, get module info object and check if logs should happen to display/file:
+    // sanity checks, get module info object and check if logs should happen to display/file/callback:
     if((dwLogLevel < LOGLEVEL_NONE) || (dwLogLevel > LOGLEVEL_ALL) || (dwLogLevel > (VMMLOG_LEVEL)H->logfilter)) { return FALSE; }
     if(!(pmi = VmmLog_GetModuleInfo(H, MID))) { return FALSE; }
-    fD = ((dwLogLevel <= ctxLog->dwLevelD) || (dwLogLevel <= pmi->dwLevelD));                       // log to display
-    fF = ((dwLogLevel <= ctxLog->dwLevelF) || (dwLogLevel <= pmi->dwLevelF)) && ctxLog->pFile;      // log to file
+    fD = ((dwLogLevel <= ctxLog->dwLevelD) || (dwLogLevel <= pmi->dwLevelD));                                       // log to display.
+    fF = ((dwLogLevel <= ctxLog->dwLevelF) || (dwLogLevel <= pmi->dwLevelF)) && (ctxLog->pFile || ctxLog->pfnCB);   // log to file or callback.
     return fD || fF;
 }
 
@@ -379,11 +396,11 @@ VOID VmmLogEx2(_In_ VMM_HANDLE H, _In_ VMM_MODULE_ID MID, _In_ VMMLOG_LEVEL dwLo
     DWORD i = 0, cchFormat;
     int cch;
     if(!ctxLog) { return; }
-    // sanity checks, get module info object and check if logs should happen to display/file:
+    // sanity checks, get module info object and check if logs should happen to display/file/callback:
     if((dwLogLevel < LOGLEVEL_NONE) || (dwLogLevel > LOGLEVEL_ALL) || (dwLogLevel > (VMMLOG_LEVEL)H->logfilter)) { return; }
     if(!(pmi = VmmLog_GetModuleInfo(H, MID))) { return; }
-    fD = ((dwLogLevel <= ctxLog->dwLevelD) || (dwLogLevel <= pmi->dwLevelD));                    // log to display
-    fF = ((dwLogLevel <= ctxLog->dwLevelF) || (dwLogLevel <= pmi->dwLevelF)) && ctxLog->pFile;    // log to file
+    fD = ((dwLogLevel <= ctxLog->dwLevelD) || (dwLogLevel <= pmi->dwLevelD));                                       // log to display.
+    fF = ((dwLogLevel <= ctxLog->dwLevelF) || (dwLogLevel <= pmi->dwLevelF)) && (ctxLog->pFile || ctxLog->pfnCB);   // log to file or callback.
     if(!fD && !fF) { return; }
     // create message part of the log (allocate buffer if required)
     cch = _vsnprintf_s(uszBuffer, cchBuffer, _TRUNCATE, uszFormat, arglist);
@@ -408,11 +425,18 @@ VOID VmmLogEx2(_In_ VMM_HANDLE H, _In_ VMM_MODULE_ID MID, _In_ VMMLOG_LEVEL dwLo
     }
     // log to file
     if(fF) {
-        Util_FileTime2String(Util_FileTimeNow(), szTime);
-        fprintf(ctxLog->pFile, "%s %s %-10s %s\n", szTime, VMMLOG_LEVEL_STR[dwLogLevel], szHead, uszBuffer);
-        if(ctxLog->fFileFlush) {
-            fflush(ctxLog->pFile);
+        if(ctxLog->pFile) {
+            Util_FileTime2String(Util_FileTimeNow(), szTime);
+            fprintf(ctxLog->pFile, "%s %s %-10s %s\n", szTime, VMMLOG_LEVEL_STR[dwLogLevel], szHead, uszBuffer);
+            if(ctxLog->fFileFlush) {
+                fflush(ctxLog->pFile);
+            }
         }
+        AcquireSRWLockShared(&ctxLog->LockSRWCB);
+        if(ctxLog->pfnCB) {
+            ctxLog->pfnCB(H, MID, szHead, dwLogLevel, uszBuffer);
+        }
+        ReleaseSRWLockShared(&ctxLog->LockSRWCB);
     }
     // cleanup
     if(uszBuffer != uszBufferSmall) { LocalFree(uszBuffer); }

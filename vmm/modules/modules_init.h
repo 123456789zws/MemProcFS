@@ -1,6 +1,6 @@
 // modules_init.h : definitions related to initialization of built-in modules.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __M_MODULES_H__
@@ -39,6 +39,7 @@ VOID M_SysCert_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPlu
 VOID M_SysDriver_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_SysMem_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_SysNet_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
+VOID M_SysNetDns_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_SysObj_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_SysPool_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_SysProc_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
@@ -73,6 +74,7 @@ VOID M_FcYara_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI);
 /*
 * Initalization functions for FINDEVIL related modules.
 */
+VOID M_Evil_Entropy_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_Evil_Kern1(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_Evil_KernProc1(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
 VOID M_Evil_Proc1(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pPluginRegInfo);
@@ -128,6 +130,7 @@ VOID(*g_pfnModulesAllInternal[])(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_REGINFO 
     M_SysDriver_Initialize,
     M_SysMem_Initialize,
     M_SysNet_Initialize,
+    M_SysNetDns_Initialize,
     M_SysObj_Initialize,
     M_SysPool_Initialize,
     M_SysProc_Initialize,
@@ -155,6 +158,7 @@ VOID(*g_pfnModulesAllInternal[])(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_REGINFO 
     M_FcWeb_Initialize,
     M_FcYara_Initialize,
     // findevil modules
+    M_Evil_Entropy_Initialize,
     M_Evil_Kern1,
     M_Evil_KernProc1,
     M_Evil_Proc1,

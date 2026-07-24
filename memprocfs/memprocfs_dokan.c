@@ -1,7 +1,7 @@
 // memprocfs_dokan.c : implementation of core functionality for MemProcFS
 // This is just a thin loader for the virtual memory manager dll which contains the logic.
 //
-// (c) Ulf Frisk, 2018-2023
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifdef _WIN32
@@ -201,11 +201,27 @@ VOID VfsDokan_Close(_In_ CHAR chMountPoint)
     ctxVfs = NULL;
 }
 
+#ifdef VMM_PROFILE_FULL
+#include "ex/memprocfs_ex.h"
+#else /* VMM_PROFILE_FULL */
+#define MEMPROCFS_IS_OPENSOURCE 1
+#define MEMPROCFS_SPLASH \
+    "==============================  MemProcFS  ==============================\n" \
+    " - Author:           Ulf Frisk - pcileech@frizk.net                      \n" \
+    " - Info:             https://github.com/ufrisk/MemProcFS                 \n" \
+    " - Discord:          https://pcileech.com/discord                        \n" \
+    " - License:          GNU Affero General Public License v3.0              \n" \
+    " - Licensed To:      %s\n"                                                   \
+    "   --------------------------------------------------------------------- \n"
+#endif /* VMM_PROFILE_FULL */
+
 VOID VfsDokan_InitializeAndMount_DisplayInfo(LPWSTR wszMountPoint)
 {
     ULONG64 qwVersionVmmMajor = 0, qwVersionVmmMinor = 0, qwVersionVmmRevision = 0;
     ULONG64 qwVersionWinMajor = 0, qwVersionWinMinor = 0, qwVersionWinBuild = 0;
     ULONG64 qwUniqueSystemId = 0, iMemoryModel;
+    LPSTR uszLicensedTo = NULL;
+    BOOL fGPL;
     // get vmm.dll versions
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_CONFIG_VMM_VERSION_MAJOR, &qwVersionVmmMajor);
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_CONFIG_VMM_VERSION_MINOR, &qwVersionVmmMinor);
@@ -216,19 +232,23 @@ VOID VfsDokan_InitializeAndMount_DisplayInfo(LPWSTR wszMountPoint)
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_WIN_VERSION_MINOR, &qwVersionWinMinor);
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_WIN_VERSION_BUILD, &qwVersionWinBuild);
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_WIN_SYSTEM_UNIQUE_ID, &qwUniqueSystemId);
-    printf("\n" \
-        "==============================  MemProcFS  ==============================\n" \
-        " - Author:           Ulf Frisk - pcileech@frizk.net                      \n" \
-        " - Info:             https://github.com/ufrisk/MemProcFS                 \n" \
-        " - Discord:          https://discord.gg/pcileech                         \n" \
-        " - License:          GNU Affero General Public License v3.0              \n" \
-        "   --------------------------------------------------------------------- \n" \
-        "   MemProcFS is free open source software. If you find it useful please  \n" \
-        "   become a sponsor at: https://github.com/sponsors/ufrisk Thank You :)  \n" \
-        "   --------------------------------------------------------------------- \n" \
+    uszLicensedTo = VMMDLL_LicensedTo();
+    if(!uszLicensedTo) {
+        printf("[CRITICAL] A valid license could not be found. Terminating.\n");
+        exit(1);
+        return;
+    }
+    fGPL = strstr(uszLicensedTo, "General Public License") != NULL;
+    if((MEMPROCFS_IS_OPENSOURCE && !fGPL) || (!MEMPROCFS_IS_OPENSOURCE && fGPL)) {
+        printf("[CRITICAL] License mis-match. Terminating.\n");
+        exit(1);
+        return;
+    }
+    printf("\n"MEMPROCFS_SPLASH \
         " - Version:          %i.%i.%i (%s)\n" \
         " - Mount Point:      %S           \n" \
         " - Tag:              %i_%x        \n",
+        uszLicensedTo,
         (DWORD)qwVersionVmmMajor, (DWORD)qwVersionVmmMinor, (DWORD)qwVersionVmmRevision, VER_OSARCH,
         wszMountPoint, (DWORD)qwVersionWinBuild, (DWORD)qwUniqueSystemId);
     if(qwVersionWinMajor && (iMemoryModel < (sizeof(VMMDLL_MEMORYMODEL_TOSTRING) / sizeof(LPSTR)))) {
@@ -238,6 +258,7 @@ VOID VfsDokan_InitializeAndMount_DisplayInfo(LPWSTR wszMountPoint)
         printf(" - Operating System: Unknown\n");
     }
     printf("==========================================================================\n\n");
+    VMMDLL_MemFree(uszLicensedTo);
 }
 
 VOID VfsDokan_InitializeAndMount(_In_ CHAR chMountPoint)
@@ -341,18 +362,18 @@ _Success_(return) BOOL MemProcFS_VfsListU(_In_ LPSTR uszPath, _Inout_ PVMMDLL_VF
 * -- pfPythonExec
 * -- return = the mount point as a drive letter.
 */
-CHAR GetMountPoint(_In_ DWORD argc, _In_ char* argv[], _Out_ PBOOL pfMountSpecified, _Out_ PBOOL pfPythonExec)
+CHAR GetMountPoint(_In_ DWORD argc, _In_ wchar_t* argv[], _Out_ PBOOL pfMountSpecified, _Out_ PBOOL pfPythonExec)
 {
     CHAR chMountPoint = 'M';
     DWORD i = 1;
     *pfPythonExec = FALSE;
     *pfMountSpecified = FALSE;
     for(i = 0; i < argc - 1; i++) {
-        if(0 == strcmp(argv[i], "-mount")) {
-            chMountPoint = argv[i + 1][0];
+        if(0 == _wcsicmp(argv[i], L"-mount")) {
+            chMountPoint = (CHAR)argv[i + 1][0];
             *pfMountSpecified = TRUE;
         }
-        if(0 == strcmp(argv[i], "-pythonexec")) {
+        if(0 == _wcsicmp(argv[i], L"-pythonexec")) {
             *pfPythonExec = TRUE;
         }
     }
@@ -400,7 +421,7 @@ BOOL WINAPI MemProcFsCtrlHandler(DWORD fdwCtrlType)
         return TRUE;
     }
     if(fdwCtrlType == CTRL_BREAK_EVENT) {
-        printf("CTRL+BREAK detected - refresh/debug initated ...\n");
+        printf("CTRL+BREAK detected - refresh/debug initiated ...\n");
         VMMDLL_ConfigSet(g_hVMM, VMMDLL_OPT_CONFIG_DEBUG, 1);
         printf("CTRL+BREAK finished ...\n");
         return TRUE;
@@ -419,7 +440,7 @@ BOOL WINAPI MemProcFsCtrlHandler(DWORD fdwCtrlType)
 * -- argv
 * -- return
 */
-int main(_In_ int argc, _In_ char* argv[])
+int wmain(_In_ int argc, _In_ wchar_t* argv[])
 {
     // MAIN FUNCTION PROPER BELOW:
     int i;
@@ -441,10 +462,13 @@ int main(_In_ int argc, _In_ char* argv[])
     SetConsoleCtrlHandler(MemProcFsCtrlHandler, TRUE);
     szArgs[0] = "-printf";
     for(i = 1; i < argc; i++) {
-        szArgs[i] = argv[i];
+        if(!CharUtil_WtoU(argv[i], (DWORD)-1, NULL, 0, &szArgs[i], NULL, CHARUTIL_FLAG_ALLOC)) {
+            printf("MemProcFS: Invalid argument!\n");
+            return 1;
+        }
     }
     if(argc > 2) {
-        szArgs[argc++] = "-userinteract";
+        CharUtil_UtoU("-userinteract", (DWORD)-1, NULL, 0, &szArgs[argc++], NULL, CHARUTIL_FLAG_ALLOC);
     }
     g_hVMM = VMMDLL_Initialize(argc, szArgs);
     if(!g_hVMM) {

@@ -1,6 +1,6 @@
 // m_phys2virt.c : implementation of the phys2virt built-in module.
 //
-// (c) Ulf Frisk, 2019-2024
+// (c) Ulf Frisk, 2019-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -270,7 +270,7 @@ BOOL Phys2Virt_List(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _Inout_
 VOID M_Phys2Virt_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if(!((pRI->tpMemoryModel == VMM_MEMORYMODEL_X64) || (pRI->tpMemoryModel == VMM_MEMORYMODEL_ARM64) || (pRI->tpMemoryModel == VMM_MEMORYMODEL_X86) || (pRI->tpMemoryModel == VMM_MEMORYMODEL_X86PAE))) { return; }
+    if(!((pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_X64) || (pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_ARM64) || (pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_X86) || (pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_X86PAE))) { return; }
     pRI->reg_fn.pfnList = Phys2Virt_List;                                // List function supported
     pRI->reg_fn.pfnRead = Phys2Virt_Read;                                // Read function supported
     pRI->reg_fn.pfnWrite = Phys2Virt_Write;                              // Write function supported

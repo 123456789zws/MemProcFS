@@ -6,7 +6,7 @@
 //  - PROC_PARENT
 //  - PROC_USER
 // 
-// (c) Ulf Frisk, 2023-2024
+// (c) Ulf Frisk, 2023-2025
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -160,7 +160,7 @@ VOID MEvilProc2_DoWork(_In_ VMM_HANDLE H, _In_ VMMDLL_MODULE_ID MID, _In_opt_ PV
     PVMM_PROCESS pObProcess = NULL;
     while((pObProcess = VmmProcessGetNext(H, pObProcess, 0))) {
         if(H->fAbort) { goto fail; }
-        if(pObProcess->dwState || !pObProcess->fUserOnly) { continue; }
+        if(pObProcess->dwState || VmmProcess_IsKernelOnly(pObProcess)) { continue; }
         if(FcIsProcessSkip(H, pObProcess)) { continue; }
         MEvilProc2_BadParent(H, pObProcess);
         MEvilProc2_BadUser(H, pObProcess);

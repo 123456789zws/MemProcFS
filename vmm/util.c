@@ -1,6 +1,6 @@
 // util.c : implementation of various utility functions.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #include "util.h"
@@ -248,10 +248,10 @@ NTSTATUS Util_VfsReadFile_FromMEM(_In_ VMM_HANDLE H, _In_opt_ PVMM_PROCESS pProc
     if(cbOffset < cbMEM) {
         vaMEM += cbOffset;
         cbMEM -= cbOffset;
+        cbMEM = min(cbMEM, cb);
         if((cbMEM < 0x04000000) && (pbMEM = LocalAlloc(0, (SIZE_T)cbMEM))) {
-            if(VmmRead2(H, pProcess, vaMEM, pbMEM, (DWORD)cbMEM, flags)) {
-                nt = Util_VfsReadFile_FromPBYTE(pbMEM, cbMEM, pb, cb, pcbRead, 0);
-            }
+            VmmRead2(H, pProcess, vaMEM, pbMEM, (DWORD)cbMEM, flags | VMM_FLAG_ZEROPAD_ON_FAIL);
+            nt = Util_VfsReadFile_FromPBYTE(pbMEM, cbMEM, pb, cb, pcbRead, 0);
             LocalFree(pbMEM);
         }
     }
@@ -359,7 +359,7 @@ NTSTATUS Util_VfsWriteFile_PBYTE(_Inout_ PBYTE pbTarget, _In_ DWORD cbTarget, _I
     }
     memcpy(pbTarget + cbOffset, pb, cb);
     if(fTerminatingNULL) {
-        pbTarget[min(cbTarget - 1, cb)] = 0;
+        pbTarget[min(cbTarget - 1, (DWORD)(cbOffset + cb))] = 0;
     }
     *pcbWrite = cb;
     return UTIL_NTSTATUS_SUCCESS;
@@ -500,6 +500,18 @@ QWORD Util_FileTimeNow()
     ftNow = (time(NULL) * 10000000) + 116444736000000000;
 #endif /* _WIN32 */
     return (QWORD)ftNow;
+}
+
+/*
+* Convert FILETIME to EPOCH.
+* -- ft
+* -- return
+*/
+_Success_(return != 0)
+QWORD Util_FileTimeToEpoch(_In_ QWORD ft)
+{
+    if(!ft || (ft > 0x0200000000000000)) { return 0; }
+    return (ft / 10000000) - 11644473600ULL;
 }
 
 VOID Util_FileTime2String(_In_ QWORD ft, _Out_writes_(24) LPSTR szTime)
@@ -872,6 +884,7 @@ NTSTATUS Util_VfsLineFixed_Read(
     NTSTATUS nt;
     PVOID pvMapEntry;
     QWORD i, iMapEntry, o = 0, cbMax, cStart, cEnd, cHeader;
+    if(cbLineLength == 0) { return VMMDLL_STATUS_FILE_INVALID; }
     cHeader = (uszHeader && H->cfg.fFileInfoHeader) ? 2 : 0;
     cStart = (DWORD)(cbOffset / cbLineLength);
     cEnd = (DWORD)min(cHeader + cMap - 1, (cb + cbOffset + cbLineLength - 1) / cbLineLength);
@@ -934,6 +947,7 @@ NTSTATUS Util_VfsLineFixedMapCustom_Read(
     NTSTATUS nt;
     PVOID pvMapEntry;
     QWORD i, iMapEntry, o = 0, cbMax, cStart, cEnd, cHeader;
+    if(cbLineLength == 0) { return VMMDLL_STATUS_FILE_INVALID; }
     cHeader = (uszHeader && H->cfg.fFileInfoHeader) ? 2 : 0;
     cStart = (DWORD)(cbOffset / cbLineLength);
     cEnd = (DWORD)min(cHeader + cMap - 1, (cb + cbOffset + cbLineLength - 1) / cbLineLength);
@@ -963,31 +977,31 @@ NTSTATUS Util_VfsLineFixedMapCustom_Read(
 /*
 * Retrieve the operating system path of the directory which is containing this:
 * .dll/.so file.
-* -- szPath
+* -- uszPath
 */
-VOID Util_GetPathLib(_Out_writes_(MAX_PATH) PCHAR szPath)
+VOID Util_GetPathLib(_Out_writes_(MAX_PATH) PCHAR uszPath)
 {
     SIZE_T i;
-    ZeroMemory(szPath, MAX_PATH);
+    ZeroMemory(uszPath, MAX_PATH);
 #ifdef _WIN32
-    HMODULE hModuleVmm;
+    HMODULE hModuleVmm = 0;
     WCHAR wszPath[MAX_PATH] = { 0 };
-    hModuleVmm = LoadLibraryU("vmm.dll");
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)Util_GetPathLib, &hModuleVmm);
     GetModuleFileNameW(hModuleVmm, wszPath, MAX_PATH - 4);
-    CharUtil_WtoU(wszPath, -1, (PBYTE)szPath, MAX_PATH, NULL, NULL, CHARUTIL_FLAG_STR_BUFONLY | CHARUTIL_FLAG_TRUNCATE);
-    if(hModuleVmm) { FreeLibrary(hModuleVmm); }
+    CharUtil_WtoU(wszPath, -1, (PBYTE)uszPath, MAX_PATH, NULL, NULL, CHARUTIL_FLAG_STR_BUFONLY | CHARUTIL_FLAG_TRUNCATE);
 #endif /* _WIN32 */
-#ifdef LINUX
+#if defined(LINUX) || defined(MACOS)
     Dl_info Info = { 0 };
     if(!dladdr((void *)Util_GetPathLib, &Info) || !Info.dli_fname) {
-        GetModuleFileNameA(NULL, szPath, MAX_PATH - 4);
+        GetModuleFileNameA(NULL, uszPath, MAX_PATH - 4);
     } else {
-        strncpy(szPath, Info.dli_fname, MAX_PATH - 1);
+        strncpy(uszPath, Info.dli_fname, MAX_PATH - 1);
     }
-#endif /* LINUX */
-    for(i = strlen(szPath) - 1; i > 0; i--) {
-        if(szPath[i] == '/' || szPath[i] == '\\') {
-            szPath[i + 1] = '\0';
+#endif /* LINUX || MACOS */
+    if(uszPath[0] == '\0') { return; }
+    for(i = strlen(uszPath) - 1; i > 0; i--) {
+        if(uszPath[i] == '/' || uszPath[i] == '\\') {
+            uszPath[i + 1] = '\0';
             return;
         }
     }
@@ -1124,6 +1138,14 @@ fail:
     return VMMDLL_STATUS_FILE_INVALID;
 }
 
+NTSTATUS Util_VfsReadFile_FromResourceEncrypted(_In_ VMM_HANDLE H, _In_ LPWSTR wszResourceName, _Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset)
+{
+    DWORD i, cMax;
+    NTSTATUS nt = Util_VfsReadFile_FromResource(H, wszResourceName, pb, cb, pcbRead, cbOffset);
+    for(i = 0, cMax = *pcbRead; i < cMax; i++) { pb[i] ^= 0xAB; }
+    return nt;
+}
+
 /*
 * Delete a file denoted by its utf-8 full path.
 * -- uszPathFile
@@ -1136,8 +1158,42 @@ VOID Util_DeleteFileU(_In_ LPCSTR uszPathFile)
     }
 }
 
+/*
+* Read a file given by its utf-8 full path into a newly allocated buffer.
+* CALLER LocalFree: *ppbFile
+* -- uszPathFile
+* -- ppbFile
+* -- pcbFile
+* -- return
+*/
+BOOL Util_ReadFileU(_In_ LPCSTR uszPathFile, _Out_ PBYTE *ppbFile, _Out_ PDWORD pcbFile)
+{
+    BOOL fResult = FALSE;
+    HANDLE hFile = INVALID_HANDLE_VALUE;
+    DWORD cbFile, cbRead;
+    PBYTE pbFile = NULL;
+    WCHAR wszWinPath[MAX_PATH];
+    *ppbFile = NULL;
+    *pcbFile = 0;
+    if(!CharUtil_UtoW(uszPathFile, -1, (PBYTE)wszWinPath, sizeof(wszWinPath), NULL, NULL, CHARUTIL_FLAG_STR_BUFONLY)) { goto fail; }
+    hFile = CreateFileW(wszWinPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if(!hFile || (hFile == INVALID_HANDLE_VALUE)) { goto fail; }
+    cbFile = GetFileSize(hFile, NULL);
+    if((cbFile > 0x00100000) || (cbFile == INVALID_FILE_SIZE)) { goto fail; }
+    if(!(pbFile = LocalAlloc(LMEM_ZEROINIT, cbFile))) { goto fail; }
+    if(!ReadFile(hFile, pbFile, cbFile, &cbRead, NULL) || (cbRead != cbFile)) { goto fail; }
+    *ppbFile = pbFile;
+    *pcbFile = cbFile;
+    pbFile = NULL;
+    fResult = TRUE;
+fail:
+    if(hFile && (hFile != INVALID_HANDLE_VALUE)) { CloseHandle(hFile); }
+    LocalFree(pbFile);
+    return fResult;
+}
+
 #endif /* _WIN32 */
-#ifdef LINUX
+#if defined(LINUX) || defined(MACOS)
 
 /*
 * SHA256 hash data.
@@ -1167,6 +1223,41 @@ VOID Util_DeleteFileU(_In_ LPCSTR uszPathFile)
     remove(uszPathFile);
 }
 
+/*
+* Read a file given by its utf-8 full path into a newly allocated buffer.
+* CALLER LocalFree: *ppbFile
+* -- uszPathFile
+* -- ppbFile
+* -- pcbFile
+* -- return
+*/
+BOOL Util_ReadFileU(_In_ LPCSTR uszPathFile, _Out_ PBYTE * ppbFile, _Out_ PDWORD pcbFile)
+{
+    BOOL fResult = FALSE;
+    FILE *f = NULL;
+    DWORD cbFile, cbRead;
+    PBYTE pbFile = NULL;
+    *ppbFile = NULL;
+    *pcbFile = 0;
+    if(fopen_s(&f, uszPathFile, "rb") || !f) { goto fail; }
+    if(fseek(f, 0, SEEK_END)) { goto fail; }
+    if((cbFile = ftell(f)) == (DWORD)-1) { goto fail; }
+    if(cbFile > 0x00100000) { goto fail; }
+    if(fseek(f, 0, SEEK_SET)) { goto fail; }
+    if(!cbFile) { goto fail; }
+    if(!(pbFile = LocalAlloc(LMEM_ZEROINIT, cbFile))) { goto fail; }
+    if((cbRead = (DWORD)fread(pbFile, 1, cbFile, f)) != cbFile) { goto fail; }
+    *ppbFile = pbFile;
+    *pcbFile = cbFile;
+    pbFile = NULL;
+    fResult = TRUE;
+fail:
+    if(f) { fclose(f); }
+    LocalFree(pbFile);
+    return fResult;
+}
+
 DWORD Util_ResourceSize(_In_ VMM_HANDLE H, _In_ LPWSTR wszResourceName) { return 0; }
 NTSTATUS Util_VfsReadFile_FromResource(_In_ VMM_HANDLE H, _In_ LPWSTR wszResourceName, _Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset) { return VMMDLL_STATUS_FILE_INVALID; }
-#endif /* LINUX */
+NTSTATUS Util_VfsReadFile_FromResourceEncrypted(_In_ VMM_HANDLE H, _In_ LPWSTR wszResourceName, _Out_writes_to_(cb, *pcbRead) PBYTE pb, _In_ DWORD cb, _Out_ PDWORD pcbRead, _In_ QWORD cbOffset) { return VMMDLL_STATUS_FILE_INVALID; }
+#endif /* LINUX || MACOS */

@@ -1,10 +1,10 @@
 // memprocfs_fuse.c : implementation of core functionality for MemProcFS
 // This is just a thin loader for the virtual memory manager .so which contains the logic.
 //
-// (c) Ulf Frisk, 2021-2023
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
-#ifdef LINUX
+#if defined(LINUX) || defined(MACOS)
 #include <vmmdll.h>
 #include "charutil.h"
 #include "vfslist.h"
@@ -28,7 +28,12 @@ VMM_HANDLE g_hVMM = NULL;
 //-----------------------------------------------------------------------------
 
 #define FILETIME_TO_UNIX(ft)        (time_t)((ft) / 10000000ULL - 11644473600ULL)
+#ifdef LINUX
 #define VER_OSARCH                  "Linux"
+#endif /* LINUX */
+#ifdef MACOS
+#define VER_OSARCH                  "macOS"
+#endif /* MACOS */
 
 static int vfs_getattr(const char *uszPathFull, struct stat *st)
 {
@@ -134,7 +139,14 @@ static struct fuse_operations vfs_operations = {
 
 int vfs_initialize_and_mount_displayinfo(char *szMountPoint)
 {
+#ifdef LINUX
     struct fuse_args fargs = { 0 };
+#endif /* LINUX */
+#ifdef MACOS
+    int argc = 5;
+    char* argv[] = {"memprocfs", "-o", "local,volname=MemProcFS", "-o", "volicon=memprocfs.icns"};
+    struct fuse_args fargs = FUSE_ARGS_INIT(argc, argv);
+#endif /* MACOS */
     g_FuseInfo.szMountPoint = szMountPoint;
     g_FuseInfo.pchan = fuse_mount(g_FuseInfo.szMountPoint, &fargs);
     if(!g_FuseInfo.pchan) { return -ENOENT; };
@@ -153,7 +165,7 @@ int vfs_initialize_and_mount_displayinfo(char *szMountPoint)
 * WRAPPER FUNCTION AROUND LOCAL/REMOTE VMMDLL_VfsListU
 * List a directory of files in MemProcFS. Directories and files will be listed
 * by callbacks into functions supplied in the pFileList parameter.
-* If information of an individual file is needed it's neccessary to list all
+* If information of an individual file is needed it's necessary to list all
 * files in its directory.
 * -- uszPath
 * -- pFileList
@@ -214,11 +226,27 @@ VOID GetMountPoint(_In_ DWORD argc, _In_ char *argv[], _Out_ LPSTR *pszMountPoin
     }
 }
 
+#ifdef VMM_PROFILE_FULL
+#include "ex/memprocfs_ex.h"
+#else /* VMM_PROFILE_FULL */
+#define MEMPROCFS_IS_OPENSOURCE 1
+#define MEMPROCFS_SPLASH \
+    "==============================  MemProcFS  ==============================\n" \
+    " - Author:           Ulf Frisk - pcileech@frizk.net                      \n" \
+    " - Info:             https://github.com/ufrisk/MemProcFS                 \n" \
+    " - Discord:          https://pcileech.com/discord                        \n" \
+    " - License:          GNU Affero General Public License v3.0              \n" \
+    " - Licensed To:      %s\n"                                                   \
+    "   --------------------------------------------------------------------- \n"
+#endif /* VMM_PROFILE_FULL */
+
 VOID Vfs_InitializeAndMount_DisplayInfo(_In_ LPSTR uszMountPoint)
 {
     ULONG64 qwVersionVmmMajor = 0, qwVersionVmmMinor = 0, qwVersionVmmRevision = 0;
     ULONG64 qwVersionWinMajor = 0, qwVersionWinMinor = 0, qwVersionWinBuild = 0;
     ULONG64 qwUniqueSystemId = 0, iMemoryModel;
+    LPSTR uszLicensedTo = NULL;
+    BOOL fGPL;
     // get vmm.dll versions
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_CONFIG_VMM_VERSION_MAJOR, &qwVersionVmmMajor);
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_CONFIG_VMM_VERSION_MINOR, &qwVersionVmmMinor);
@@ -229,19 +257,23 @@ VOID Vfs_InitializeAndMount_DisplayInfo(_In_ LPSTR uszMountPoint)
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_WIN_VERSION_MINOR, &qwVersionWinMinor);
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_WIN_VERSION_BUILD, &qwVersionWinBuild);
     VMMDLL_ConfigGet(g_hVMM, VMMDLL_OPT_WIN_SYSTEM_UNIQUE_ID, &qwUniqueSystemId);
-    printf("\n" \
-        "==============================  MemProcFS  ==============================\n" \
-        " - Author:           Ulf Frisk - pcileech@frizk.net                      \n" \
-        " - Info:             https://github.com/ufrisk/MemProcFS                 \n" \
-        " - Discord:          https://discord.gg/pcileech                         \n" \
-        " - License:          GNU Affero General Public License v3.0              \n" \
-        "   --------------------------------------------------------------------- \n" \
-        "   MemProcFS is free open source software. If you find it useful please  \n" \
-        "   become a sponsor at: https://github.com/sponsors/ufrisk Thank You :)  \n" \
-        "   --------------------------------------------------------------------- \n" \
+    uszLicensedTo = VMMDLL_LicensedTo();
+    if(!uszLicensedTo) {
+        printf("[CRITICAL] A valid license could not be found. Terminating.\n");
+        exit(1);
+        return;
+    }
+    fGPL = strstr(uszLicensedTo, "General Public License") != NULL;
+    if((MEMPROCFS_IS_OPENSOURCE && !fGPL) || (!MEMPROCFS_IS_OPENSOURCE && fGPL)) {
+        printf("[CRITICAL] License mis-match. Terminating.\n");
+        exit(1);
+        return;
+    }
+    printf("\n"MEMPROCFS_SPLASH \
         " - Version:          %i.%i.%i (%s)\n" \
         " - Mount Point:      %s           \n" \
         " - Tag:              %i_%x        \n",
+        uszLicensedTo,
         (DWORD)qwVersionVmmMajor, (DWORD)qwVersionVmmMinor, (DWORD)qwVersionVmmRevision, VER_OSARCH,
         uszMountPoint, (DWORD)qwVersionWinBuild, (DWORD)qwUniqueSystemId);
     if(qwVersionWinMajor && (iMemoryModel < (sizeof(VMMDLL_MEMORYMODEL_TOSTRING) / sizeof(LPSTR)))) {
@@ -251,6 +283,7 @@ VOID Vfs_InitializeAndMount_DisplayInfo(_In_ LPSTR uszMountPoint)
         printf(" - Operating System: Unknown\n");
     }
     printf("==========================================================================\n\n");
+    VMMDLL_MemFree(uszLicensedTo);
 }
 
 /*
@@ -311,4 +344,4 @@ int main(_In_ int argc, _In_ char* argv[])
     return vfs_initialize_and_mount_displayinfo(szMountPoint);
 }
 
-#endif /* LINUX */
+#endif /* LINUX || MACOS */

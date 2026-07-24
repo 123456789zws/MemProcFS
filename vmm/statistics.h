@@ -1,6 +1,6 @@
 // statistics.h : definitions of statistics related functionality.
 //
-// (c) Ulf Frisk, 2016-2024
+// (c) Ulf Frisk, 2016-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __STATISTICS_H__
@@ -46,6 +46,7 @@ typedef enum tdSTATISTICS_ID {
     STATISTICS_ID_VMMDLL_ProcessGetInformationAll,
     STATISTICS_ID_VMMDLL_ProcessGetInformationString,
     STATISTICS_ID_VMMDLL_Log,
+    STATISTICS_ID_VMMDLL_LogCallback,
     STATISTICS_ID_VMMDLL_Map_GetPte,
     STATISTICS_ID_VMMDLL_Map_GetVad,
     STATISTICS_ID_VMMDLL_Map_GetVadEx,
@@ -137,6 +138,7 @@ static LPCSTR STATISTICS_ID_STR[STATISTICS_ID_MAX] = {
     [STATISTICS_ID_VMMDLL_ProcessGetInformationAll] = "VMMDLL_ProcessGetInformationAll",
     [STATISTICS_ID_VMMDLL_ProcessGetInformationString] = "VMMDLL_ProcessGetInformationString",
     [STATISTICS_ID_VMMDLL_Log]                      = "VMMDLL_Log",
+    [STATISTICS_ID_VMMDLL_LogCallback]              = "VMMDLL_LogCallback",
     [STATISTICS_ID_VMMDLL_Map_GetPte]               = "VMMDLL_Map_GetPte",
     [STATISTICS_ID_VMMDLL_Map_GetVad]               = "VMMDLL_Map_GetVad",
     [STATISTICS_ID_VMMDLL_Map_GetVadEx]             = "VMMDLL_Map_GetVadEx",

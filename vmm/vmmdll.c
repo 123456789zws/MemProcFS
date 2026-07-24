@@ -1,6 +1,6 @@
 // vmmdll.c : implementation of external exported library functions.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -17,11 +17,16 @@
 #include "sysquery.h"
 #include "version.h"
 #include "vmm.h"
+#include "vmmex.h"
+#include "vmmheap.h"
 #include "vmmproc.h"
 #include "vmmwin.h"
 #include "vmmnet.h"
 #include "vmmwinobj.h"
+#include "vmmwinpool.h"
 #include "vmmwinreg.h"
+#include "vmmwinsvc.h"
+#include "vmmwinthread.h"
 #include "vmmvm.h"
 #include "vmmyarautil.h"
 #include "mm/mm_pfn.h"
@@ -51,6 +56,7 @@
 #define OB_TAG_API_MAP_VAD_EX           'VADX'
 #define OB_TAG_API_MAP_VM               'VM  '
 #define OB_TAG_API_MODULE_FROM_NAME     'MODN'
+#define OB_TAG_API_LICENSE              'LIC '
 #define OB_TAG_API_PROCESS_INFORMATION  'PNFO'
 #define OB_TAG_API_PROCESS_STRING       'PSTR'
 #define OB_TAG_API_SEARCH               'SRCH'
@@ -75,6 +81,7 @@ VMM_HANDLE VMMDLL_Initialize(_In_ DWORD argc, _In_ LPCSTR argv[])
 EXPORTED_FUNCTION
 VOID VMMDLL_Close(_In_opt_ _Post_ptr_invalid_ VMM_HANDLE H)
 {
+    if(!H) { return; }
     if(VMM_HANDLE_IS_REMOTE(H)) {
         VmmDllRemote_Close(H);
         return;
@@ -263,6 +270,9 @@ _Success_(return)
 BOOL VMMDLL_ConfigSetProcess_Impl(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In_ ULONG64 fOption, _In_ ULONG64 qwValue)
 {
     switch(fOption) {
+        case VMMDLL_OPT_REFRESH_SPECIFIC_PROCESS:
+            VmmWinProcess_Enumerate_SingleProcess_Refresh(H, pProcess->dwPID);
+            return TRUE;
         case VMMDLL_OPT_PROCESS_DTB:
             pProcess->pObPersistent->paDTB_Override = qwValue;
             VmmProcRefresh_Slow(H);
@@ -325,6 +335,51 @@ BOOL VMMDLL_ConfigSet_Impl(_In_ VMM_HANDLE H, _In_ ULONG64 fOption, _In_ ULONG64
         }
         return fResult;
     }
+    // user-initiated specific refresh / cache flushes
+    if((fOption & 0xffff000000000000) == 0x2003000000000000) {
+        fResult = TRUE;
+        EnterCriticalSection(&H->vmm.LockMaster);
+        switch(fOption) {
+            case VMMDLL_OPT_REFRESH_SPECIFIC_KOBJECT:
+                VmmWinObj_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_HEAP_ALLOC:
+                VmmHeapAlloc_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_NET:
+                VmmNet_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_PFN:
+                MmPfn_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_PHYSMEMMAP:
+                VmmWinPhysMemMap_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_POOL:
+                VmmWinPool_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_REGISTRY:
+                VmmWinReg_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_SERVICES:
+                VmmWinSvc_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_THREADCS:
+                VmmWinThreadCs_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_USER:
+                VmmWinUser_Refresh(H);
+                break;
+            case VMMDLL_OPT_REFRESH_SPECIFIC_VM:
+                VmmVm_Refresh(H);
+                break;
+            default:
+                fResult = FALSE;
+                break;
+        }
+        LeaveCriticalSection(&H->vmm.LockMaster);
+        return fResult;
+    }
     // options:
     switch(fOption & 0xffffffff00000000) {
         case VMMDLL_OPT_CORE_PRINTF_ENABLE:
@@ -352,7 +407,7 @@ BOOL VMMDLL_ConfigSet_Impl(_In_ VMM_HANDLE H, _In_ ULONG64 fOption, _In_ ULONG64
             PluginManager_Notify(H, VMMDLL_PLUGIN_NOTIFY_VERBOSITYCHANGE, NULL, 0);
             return TRUE;
         case VMMDLL_OPT_CONFIG_IS_PAGING_ENABLED:
-            H->vmm.flags = (H->vmm.flags & ~VMM_FLAG_NOPAGING) | (qwValue ? 0 : 1);
+            H->vmm.flags = (H->vmm.flags & ~VMM_FLAG_NOPAGING) | (qwValue ? 0 : VMM_FLAG_NOPAGING);
             return TRUE;
         case VMMDLL_OPT_CONFIG_DEBUG:
             VMMDLL_ConfigSet_Impl_Debug(H, fOption, qwValue);
@@ -1733,7 +1788,7 @@ BOOL VMMDLL_Map_GetHandle_Impl(_In_ VMM_HANDLE H, _In_ DWORD dwPID, _Out_ PVMMDL
     // 1: fetch map [and populate strings]:
     if(!(psmOb = ObStrMap_New(H, 0))) { goto fail; }
     if(!(pObProcess = VmmProcessGet(H, dwPID))) { goto fail; }
-    if(!VmmMap_GetHandle(H, pObProcess, &pObMapSrc, TRUE)) { goto fail; }
+    if(!VmmMap_GetHandle(H, pObProcess, &pObMapSrc, VMM_HANDLE_FLAG_FULLTEXT)) { goto fail; }
     for(i = 0; i < pObMapSrc->cMap; i++) {
         peSrc = pObMapSrc->pMap + i;
         pOT = VmmWin_ObjectTypeGet(H, (BYTE)peSrc->iType);
@@ -2751,6 +2806,30 @@ VOID VMMDLL_Log(_In_ VMM_HANDLE H, _In_opt_ VMMDLL_MODULE_ID MID, _In_ VMMDLL_LO
     va_end(arglist);
 }
 
+_Success_(return)
+BOOL VMMDLL_LogCallback_Impl(_In_ VMM_HANDLE H, _In_opt_ VMMDLL_LOG_CALLBACK_PFN pfnCB)
+{
+    VmmLog_SetCB(H, pfnCB);
+    return TRUE;
+}
+
+/*
+* Register or unregister an optional log callback function.
+* When vmm logs an action which is visible according to current logging
+* configuration the registered callback function will be called with details.
+* To clear an already registered callback function specify NULL as pfnCB.
+* Callback logging will follow file logging configuration even if no log file
+* is specified when a callback function is registered.
+* -- hVMM
+* -- pfnCB
+* -- return = success/fail.
+*/
+_Success_(return)
+BOOL VMMDLL_LogCallback(_In_ VMM_HANDLE hVMM, _In_opt_ VMMDLL_LOG_CALLBACK_PFN pfnCB)
+{
+    CALL_IMPLEMENTATION_VMM(hVMM, STATISTICS_ID_VMMDLL_LogCallback, VMMDLL_LogCallback_Impl(hVMM, pfnCB))
+}
+
 
 
 //-----------------------------------------------------------------------------
@@ -3249,6 +3328,21 @@ BOOL VMMDLL_UtilFillHexAscii(_In_reads_opt_(cb) PBYTE pb, _In_ DWORD cb, _In_ DW
     return Util_FillHexAscii(pb, cb, cbInitialOffset, sz, pcsz);
 }
 
+/*
+* Retrieve license information - Licensed To.
+* -- CALLER FREE: VMMDLL_MemFree(return)
+* -- return = NULL on fail, otherwise a string that must be free'd by caller.
+*/
+EXPORTED_FUNCTION _Success_(return != NULL)
+LPSTR VMMDLL_LicensedTo()
+{
+    LPSTR uszLicensedToInt = NULL, uszLicensedToExt = NULL;
+    uszLicensedToInt = VmmEx_License_LicensedTo();
+    if(!uszLicensedToInt) { return NULL; }
+    uszLicensedToExt = VmmDllCore_MemAllocExternalAndCopy(NULL, OB_TAG_API_LICENSE, (PBYTE)uszLicensedToInt, (DWORD)(strlen(uszLicensedToInt) + 1));
+    LocalFree(uszLicensedToInt);
+    return uszLicensedToExt;
+}
 
 
 

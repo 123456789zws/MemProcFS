@@ -2,7 +2,7 @@
 //         for debug symbols and automatic retrieval from the Microsoft Symbol
 //         Server. (Windows exclusive functionality).
 //
-// (c) Ulf Frisk, 2019-2024
+// (c) Ulf Frisk, 2019-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __PDB_H__
@@ -16,6 +16,9 @@ typedef QWORD                               PDB_HANDLE;
 #define PDB_HANDLE_TCPIP                    ((PDB_HANDLE)-2)
 #define PDB_HANDLE_NTDLL                    ((PDB_HANDLE)-3)
 #define PDB_HANDLE_NTDLL_WOW64              ((PDB_HANDLE)-4)
+#define PDB_HANDLE_DNSRSLVR                 ((PDB_HANDLE)-5)
+
+#define PDB_HANDLE_IS_MAGIC(hPDB)           (((QWORD)hPDB >> 32) == 0xFFFFFFFF)
 
 /*
 * Initialize the PDB sub-system. This should ideally be done on Vmm Init().

@@ -2,7 +2,7 @@
 // 
 // This API is a wrapper API around the VMMDLL_MemReadScatter API call.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -131,7 +131,7 @@ BOOL VMMDLL_Scatter_PrepareInternal(_In_ PSCATTER_CONTEXT ctx, _In_ QWORD va, _I
             if((cMEMsRequired == 1) && (cb <= 0x400) && !fForcePageRead) {
                 // single-page small read -> optimize MEM for small read.
                 // NB! buffer allocation still remains 0x1000 even if not all is used for now.
-                pMEM->cb = (cb + 15) & ~0x7;
+                pMEM->cb = (cb + 7 + (va & 7)) & ~0x7;
                 pMEM->qwA = va & ~0x7;
                 if((pMEM->qwA & 0xfff) + pMEM->cb > 0x1000) {
                     pMEM->qwA = (pMEM->qwA & ~0xfff) + 0x1000 - pMEM->cb;
@@ -420,14 +420,17 @@ BOOL VMMDLL_Scatter_Read(_In_ VMMDLL_SCATTER_HANDLE hS, _In_ QWORD va, _In_ DWOR
 _Success_(return)
 BOOL VMMDLL_Scatter_ExecuteReadInternal(_In_ PSCATTER_CONTEXT ctx)
 {
-    DWORD i, cbBuffer, cbBufferAlloc, oBufferAllocMEM = 0;
+    SIZE_T cPagesToAlloc, cbBuffer, cbBufferAlloc, oBufferAllocMEM = 0;
+    DWORD i;
     PMEM_SCATTER pMEM;
     PPMEM_SCATTER ppMEMs;
     PSCATTER_RANGE pRange;
     // validate
     if(!ctx->cPageTotal || (ctx->cPageTotal != ObMap_Size(ctx->pmMEMs))) { return FALSE; }
     // alloc (if required)
-    cbBuffer = (ctx->cPageTotal - ctx->cPageAlloc) * 0x1000;
+    cPagesToAlloc = (ctx->cPageTotal - ctx->cPageAlloc);
+    if((cPagesToAlloc > 0x000f0000) && (sizeof(SIZE_T) < 8)) { return FALSE; }
+    cbBuffer = cPagesToAlloc * 0x1000;
     if(!ctx->fExecute) {
         cbBufferAlloc = cbBuffer + ctx->cPageTotal * sizeof(PMEM_SCATTER);
         if(!(ctx->pbBuffer = LocalAlloc(LMEM_ZEROINIT, cbBufferAlloc))) { return FALSE; }

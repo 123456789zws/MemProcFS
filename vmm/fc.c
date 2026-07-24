@@ -9,7 +9,7 @@
 //      is generally stored in an sqlite database with may be used to query
 //      the results.
 //
-// (c) Ulf Frisk, 2020-2024
+// (c) Ulf Frisk, 2020-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -1267,9 +1267,9 @@ VOID FcScanVirtmem_AddRangeUser(_In_ VMM_HANDLE H, _In_ PFCOB_SCAN_VIRTMEM_CONTE
     PVMM_PROCESS pObProcess = NULL;
     while((pObProcess = VmmProcessGetNext(H, pObProcess, 0))) {
         if(H->fAbort) { goto fail; }
-        if(!pObProcess->fUserOnly) { continue; }            // don't scan kernel processes
-        if(!pObProcess->win.vaPEB) { continue; }            // don't scan special user-mode processes without PEB (such as MemCompression)
-        if(FcIsProcessSkip(H, pObProcess)) { continue; }    // don't scan problematic processes
+        if(VmmProcess_IsKernelOnly(pObProcess)) { continue; }   // don't scan kernel processes
+        if(!pObProcess->win.vaPEB) { continue; }                // don't scan special user-mode processes without PEB (such as MemCompression)
+        if(FcIsProcessSkip(H, pObProcess)) { continue; }        // don't scan problematic processes
         FcScanVirtmem_AddRangeUserProcess(H, ctx, pObProcess);
     }
 fail:
@@ -1424,10 +1424,33 @@ fail:
 // FC GENERAL FUNCTIONALITY BELOW:
 // ----------------------------------------------------------------------------
 
+/*
+* Check whether the specific process should be skipped in the forensic scan.
+* This is mostly used to skip problematic processes such as known anti-virus
+* and EDR processes that often trigger false-positives.
+* -- H
+* -- pProcess = the process to check.
+* -- return = TRUE if the process should be skipped, FALSE otherwise.
+*/
 BOOL FcIsProcessSkip(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess)
 {
+    BOOL fResult;
+    PVMM_PROCESS pObParentProcess = NULL;
+    if(CharUtil_StrCmpAny(CharUtil_StrEquals, pProcess->szName, FALSE, 6, "MemCompression", "Registry", "MsMpEng.exe", "vmmem", "vmware-vmx.exe", "elastic-endpoi")) {
+        if(CharUtil_StrCmpAny(CharUtil_StrEquals, pProcess->szName, FALSE, 2, "MemCompression", "Registry")) {
+            // Require 'SYSTEM' as parent process:
+            return (pProcess->dwPPID == 4);
+        }
+        if(CharUtil_StrCmpAny(CharUtil_StrEquals, pProcess->szName, FALSE, 1, "elastic-endpoi")) {
+            // Require 'services.exe' as parent process:
+            pObParentProcess = VmmProcessGet(H, pProcess->dwPPID);
+            fResult = pObParentProcess && CharUtil_StrEquals(pObParentProcess->szName, "services.exe", FALSE);
+            Ob_DECREF(pObParentProcess);
+            return fResult;
+        }
+        return TRUE;
+    }
     return
-        CharUtil_StrCmpAny(CharUtil_StrEquals, pProcess->szName, FALSE, 4, "MsMpEng.exe", "MemCompression", "Registry", "vmmem", "vmware-vmx.exe") ||
         (H->cfg.ForensicProcessSkipList.cusz && CharUtil_StrCmpAnyEx(CharUtil_StrEquals, pProcess->szName, TRUE, H->cfg.ForensicProcessSkipList.cusz, (LPCSTR*)H->cfg.ForensicProcessSkipList.pusz));
 }
 
@@ -1621,9 +1644,9 @@ BOOL FcInitialize_SetPath(_In_ VMM_HANDLE H, _In_ DWORD dwDatabaseType)
     if(!cch || cch > 128) { return FALSE; }
     if(!CharUtil_WtoU(wszTemp, -1, uszTemp, sizeof(uszTemp), NULL, NULL, CHARUTIL_FLAG_STR_BUFONLY)) { return FALSE; }
 #endif /* _WIN32 */
-#ifdef LINUX
+#if defined(LINUX) || defined(MACOS)
     strcpy_s(uszTemp, sizeof(uszTemp), "/tmp/");
-#endif /* LINUX */
+#endif /* LINUX || MACOS */
     if((dwDatabaseType == FC_DATABASE_TYPE_TEMPFILE_CLOSE) || (dwDatabaseType == FC_DATABASE_TYPE_TEMPFILE_NOCLOSE)) {
         GetLocalTime(&st);
         _snprintf_s(

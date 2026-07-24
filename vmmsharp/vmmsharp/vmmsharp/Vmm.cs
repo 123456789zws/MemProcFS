@@ -5,7 +5,7 @@
  *  
  *  Please consult the C/C++ header files vmmdll.h and leechcore.h for information about parameters and API usage.
  *  
- *  (c) Ulf Frisk, 2020-2024
+ *  (c) Ulf Frisk, 2020-2026
  *  Author: Ulf Frisk, pcileech@frizk.net
  *  
  */
@@ -55,12 +55,6 @@ namespace Vmmsharp
         public virtual LeechCore LeechCore { get; }
 
         /// <summary>
-        /// Private zero-argument constructor to prevent instantiation.
-        /// </summary>
-        private Vmm()
-        {
-        }
-        /// <summary>
         /// ToString() override.
         /// </summary>
         /// <returns></returns>
@@ -72,7 +66,7 @@ namespace Vmmsharp
         /// <summary>
         /// Internal initialization method.
         /// </summary>
-        protected static unsafe IntPtr Initialize(out LeechCore.LCConfigErrorInfo configErrorInfo, params string[] args)
+        protected static unsafe IntPtr Initialize(out LeechCore.LCConfigErrorInfo configErrorInfo, bool initPlugins, params string[] args)
         {
             IntPtr pLcErrorInfo;
             int cbERROR_INFO = System.Runtime.InteropServices.Marshal.SizeOf<Lci.LC_CONFIG_ERRORINFO>();
@@ -86,7 +80,10 @@ namespace Vmmsharp
             }
             if (vaLcCreateErrorInfo == 0)
             {
-                Vmmi.VMMDLL_InitializePlugins(hVMM);
+                if (initPlugins)
+                {
+                    Vmmi.VMMDLL_InitializePlugins(hVMM);
+                }
                 return hVMM;
             }
             Lci.LC_CONFIG_ERRORINFO e = Marshal.PtrToStructure<Lci.LC_CONFIG_ERRORINFO>(pLcErrorInfo);
@@ -99,8 +96,18 @@ namespace Vmmsharp
                     configErrorInfo.strUserText = Marshal.PtrToStringUni((System.IntPtr)(vaLcCreateErrorInfo + cbERROR_INFO));
                 }
             }
-            Vmmi.VMMDLL_InitializePlugins(hVMM);
+            if (initPlugins)
+            {
+                Vmmi.VMMDLL_InitializePlugins(hVMM);
+            }
             return hVMM;
+        }
+
+        /// <summary>
+        /// Private zero-argument constructor to prevent instantiation.
+        /// </summary>
+        private Vmm()
+        {
         }
 
         /// <summary>
@@ -110,11 +117,8 @@ namespace Vmmsharp
         /// <param name="configErrorInfo">Error information in case of an error.</param>
         /// <param name="args">MemProcFS/Vmm command line arguments.</param>
         public Vmm(out LeechCore.LCConfigErrorInfo configErrorInfo, params string[] args)
+            : this(out configErrorInfo, true, args)
         {
-            this.hVMM = Vmm.Initialize(out configErrorInfo, args);
-            ulong hLC = GetConfig(CONFIG_OPT_CORE_LEECHCORE_HANDLE);
-            string sLC = $"existing://0x{hLC:X}";
-            this.LeechCore = new LeechCore(sLC);
         }
 
         /// <summary>
@@ -122,12 +126,42 @@ namespace Vmmsharp
         /// </summary>
         /// <param name="args">MemProcFS/Vmm command line arguments.</param>
         public Vmm(params string[] args)
+            : this(out LeechCore.LCConfigErrorInfo errorInfo, true, args)
         {
-            LeechCore.LCConfigErrorInfo errorInfo;
-            this.hVMM = Vmm.Initialize(out errorInfo, args);
+        }
+
+        /// <summary>
+        /// Initialize a new Vmm instance with command line arguments.
+        /// </summary>
+        /// <param name="initializePlugins">Initialize plugins on startup.</param>
+        /// <param name="args">MemProcFS/Vmm command line arguments.</param>
+        public Vmm(bool initializePlugins, params string[] args)
+            : this(out _, initializePlugins, args)
+        {
+        }
+
+        /// <summary>
+        /// Initialize a new Vmm instance with command line arguments.
+        /// Also retrieve the extended error information (if there is an error).
+        /// </summary>
+        /// <param name="configErrorInfo">Error information in case of an error.</param>
+        /// <param name="initializePlugins">Initialize plugins on startup.</param>
+        /// <param name="args">MemProcFS/Vmm command line arguments.</param>
+        public Vmm(out LeechCore.LCConfigErrorInfo configErrorInfo, bool initializePlugins, params string[] args)
+        {
+            this.hVMM = Vmm.Initialize(out configErrorInfo, initializePlugins, args);
             ulong hLC = GetConfig(CONFIG_OPT_CORE_LEECHCORE_HANDLE);
             string sLC = $"existing://0x{hLC:X}";
             this.LeechCore = new LeechCore(sLC);
+        }
+
+        /// <summary>
+        /// Manually initialize plugins.
+        /// By default plugins are initialized during initialization, unless you specifically passed FALSE to the constructor.
+        /// </summary>
+        public void InitializePlugins()
+        {
+            Vmmi.VMMDLL_InitializePlugins(hVMM);
         }
 
         ~Vmm()
@@ -148,11 +182,18 @@ namespace Vmmsharp
                 // Dispose managed objects.
                 if (disposing)
                 {
-                    this.LeechCore.Dispose();
                 }
                 // Free unmanaged objects.
-                Vmmi.VMMDLL_Close(hVMM);
+                if (this.LeechCore != null)
+                {
+                    this.LeechCore.Dispose(); // Contains unmanaged handles
+                }
+                IntPtr hVMM_Dispose = hVMM;
                 hVMM = IntPtr.Zero;
+                if(hVMM_Dispose != IntPtr.Zero)
+                {
+                    Vmmi.VMMDLL_Close(hVMM_Dispose);
+                }
                 disposed = true;
             }
         }
@@ -281,6 +322,20 @@ namespace Vmmsharp
         public const ulong CONFIG_OPT_REFRESH_FREQ_FAST              = 0x2001040000000000;  // W - refresh fast frequency - incl. partial process refresh
         public const ulong CONFIG_OPT_REFRESH_FREQ_MEDIUM            = 0x2001000100000000;  // W - refresh medium frequency - incl. full process refresh
         public const ulong CONFIG_OPT_REFRESH_FREQ_SLOW              = 0x2001001000000000;  // W - refresh slow frequency.
+
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_HEAP_ALLOC    = 0x2003000100000000;  // W - refresh only heap allocations.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_KOBJECT       = 0x2003000200000000;  // W - refresh only kernel objects.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_NET           = 0x2003000300000000;  // W - refresh only network connections.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_PFN           = 0x2003000400000000;  // W - refresh only pfn database.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_PHYSMEMMAP    = 0x2003000500000000;  // W - refresh only physical memory map.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_POOL          = 0x2003000600000000;  // W - refresh only kernel pool.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_REGISTRY      = 0x2003000700000000;  // W - refresh only registry.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_SERVICES      = 0x2003000800000000;  // W - refresh only services.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_THREADCS      = 0x2003000900000000;  // W - refresh only thread callstacks.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_USER          = 0x2003000A00000000;  // W - refresh only users.
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_VM            = 0x2003000B00000000;  // W - refresh only virtual machines.
+
+        public const ulong CONFIG_OPT_REFRESH_SPECIFIC_PROCESS       = 0x2002000300000000;  // W - refresh only the specified process [LO-DWORD: Process PID]
 
         // PROCESS OPTIONS: [LO-DWORD: Process PID]
         public const ulong CONFIG_OPT_PROCESS_DTB                    = 0x2002000100000000;  // W - force set process directory table base.
@@ -435,6 +490,21 @@ namespace Vmmsharp
             where T : unmanaged =>
             Vmmi.MemReadAs<T>(hVMM, PID_PHYSICALMEMORY, pa, flags);
 
+#if NET9_0_OR_GREATER
+        /// <summary>
+        /// Read Memory from a Physical Address into a ref struct of Type <typeparamref name="T"/>.
+        /// </summary>
+        /// <typeparam name="T">Struct/Ref Struct Type.</typeparam>
+        /// <param name="pa">Physical Address to read from.</param>
+        /// <param name="result">Memory read result.</param>
+        /// <param name="flags">VMM Flags.</param>
+        /// <returns>TRUE if successful, otherwise FALSE.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe bool MemReadRefAs<T>(ulong pa, out T result, uint flags = 0)
+            where T : unmanaged, allows ref struct =>
+            Vmmi.MemReadRefAs<T>(hVMM, PID_PHYSICALMEMORY, pa, out result, flags);
+#endif
+
         /// <summary>
         /// Read Memory from a Physical Address into an Array of Type <typeparamref name="T"/>.
         /// </summary>
@@ -541,7 +611,11 @@ namespace Vmmsharp
         /// <returns>True if write successful, otherwise False.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe bool MemWriteStruct<T>(ulong pa, T value)
-            where T : unmanaged =>
+            where T : unmanaged
+#if NET9_0_OR_GREATER
+            , allows ref struct
+#endif
+            =>
             Vmmi.MemWriteStruct(hVMM, PID_PHYSICALMEMORY, pa, value);
 
         /// <summary>
@@ -577,7 +651,7 @@ namespace Vmmsharp
             return sb.ToString();
         }
 
-        #endregion
+#endregion
 
 
         #region VFS (Virtual File System) functionality
@@ -740,8 +814,15 @@ namespace Vmmsharp
         {
             List<VfsEntry> ctx = new List<VfsEntry>();
             GCHandle gcHandle = GCHandle.Alloc(ctx);
-            ulong nativeHandle = (ulong)((IntPtr)gcHandle).ToInt64();
-            VfsList(path, nativeHandle, VfsList_AddFileCB, VfsList_AddDirectoryCB);
+            try
+            {
+                ulong nativeHandle = (ulong)((IntPtr)gcHandle).ToInt64();
+                VfsList(path, nativeHandle, VfsList_AddFileCB, VfsList_AddDirectoryCB);
+            }
+            finally
+            {
+                gcHandle.Free();
+            }
             return ctx;
         }
 
@@ -801,7 +882,7 @@ namespace Vmmsharp
             }
         }
 
-#endregion
+        #endregion
 
 
         #region Process functionality
@@ -816,11 +897,11 @@ namespace Vmmsharp
         /// </summary>
         /// <param name="sProcName">Process name to get.</param>
         /// <returns>A VmmProcess if successful, if unsuccessful null.</returns>
-        public VmmProcess Process(string sProcName)
+        public VmmProcess GetProcessByName(string sProcName)
         {
             if (Vmmi.VMMDLL_PidGetFromName(hVMM, sProcName, out uint pdwPID))
             {
-                return new VmmProcess(this, pdwPID);
+                return GetProcessByPID(pdwPID);
             }
             return null;
         }
@@ -831,24 +912,47 @@ namespace Vmmsharp
         /// </summary>
         /// <param name="pid">Process ID to get.</param>
         /// <returns>A VmmProcess if successful, if unsuccessful null.</returns>
-        public VmmProcess Process(uint pid)
+        public VmmProcess GetProcessByPID(uint pid)
         {
-            VmmProcess process = new VmmProcess(this, pid);
+            var process = new VmmProcess(this, pid);
             if (process.IsValid)
                 return process;
             return null;
         }
 
         /// <summary>
+        /// Lookup a process by its name.
+        /// Validation is also performed to ensure the process is valid.
+        /// </summary>
+        /// <param name="sProcName">Process name to get.</param>
+        /// <returns>A VmmProcess if successful, if unsuccessful null.</returns>
+        public VmmProcess Process(string sProcName) =>
+            GetProcessByName(sProcName);
+
+        /// <summary>
+        /// Lookup a Process by its Process ID.
+        /// Validation is also performed to ensure the process is valid.
+        /// </summary>
+        /// <param name="pid">Process ID to get.</param>
+        /// <returns>A VmmProcess if successful, if unsuccessful null.</returns>
+        public VmmProcess Process(uint pid) =>
+            GetProcessByPID(pid);
+
+        /// <summary>
         /// Returns All Processes on the Target System.
         /// </summary>
-        public VmmProcess[] Processes =>
-            PIDs.Select(pid => new VmmProcess(this, pid)).ToArray();
+        public VmmProcess[] AllProcesses =>
+            AllPIDs.Select(pid => new VmmProcess(this, pid)).ToArray();
+
+        /// <summary>
+        /// Returns All Processes on the Target System.
+        /// </summary>
+        public VmmProcess[] Processes => AllProcesses;
 
         /// <summary>
         /// Returns All Process IDs on the Target System.
         /// </summary>
-        public unsafe uint[] PIDs
+        public unsafe uint[] AllPIDs
         {
             get
             {
@@ -869,6 +973,12 @@ namespace Vmmsharp
                 }
             }
         }
+
+        /// <summary>
+        /// Returns All Process IDs on the Target System.
+        /// </summary>
+        public unsafe uint[] PIDs =>
+            AllPIDs;
 
         #endregion
 

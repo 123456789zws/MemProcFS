@@ -1,6 +1,6 @@
 // oscompatibility.h : VMM Windows/Linux compatibility layer.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __OSCOMPATIBILITY_H__
@@ -20,7 +20,7 @@
 #define STATUS_FILE_SYSTEM_LIMITATION       ((NTSTATUS)0xC0000427L)
 typedef unsigned __int64                    QWORD, *PQWORD;
 _Ret_maybenull_ HMODULE WINAPI LoadLibraryU(_In_ LPCSTR lpLibFileName);
-int LZ4_decompress_safe(const char *src, char *dst, int compressedSize, int dstCapacity);
+errno_t fopen_su(FILE **pFile, const char *filename, const char *mode);
 
 #ifdef _WIN64
 #define VMM_64BIT
@@ -33,7 +33,16 @@ int LZ4_decompress_safe(const char *src, char *dst, int compressedSize, int dstC
 #endif /* _M_ARM64 */
 
 #endif /* _WIN32 */
+
 #ifdef LINUX
+#define VMM_LIBRARY_FILETYPE                ".so"
+#endif /* LINUX */
+
+#ifdef MACOS
+#define VMM_LIBRARY_FILETYPE                ".dylib"
+#endif /* MACOS */
+
+#if defined(LINUX) || defined(MACOS)
 #define _FILE_OFFSET_BITS 64
 
 #if __SIZEOF_POINTER__ == 8
@@ -42,7 +51,6 @@ int LZ4_decompress_safe(const char *src, char *dst, int compressedSize, int dstC
 #define VMM_32BIT
 #endif /* __SIZEOF_POINTER__ */
 
-#include <byteswap.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <dlfcn.h>
@@ -57,16 +65,12 @@ int LZ4_decompress_safe(const char *src, char *dst, int compressedSize, int dstC
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/eventfd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <lz4.h>
 #undef  AF_INET6
 #define AF_INET6 23
-
-#define VMM_LIBRARY_FILETYPE                ".so"
 
 typedef void                                VOID, *PVOID, *LPVOID;
 typedef void                                *HANDLE, **PHANDLE, *HMODULE, *FARPROC;
@@ -102,6 +106,7 @@ typedef int(*_CoreCrtNonSecureSearchSortCompareFunction)(void const *, void cons
 #define MAX_PATH                            260
 #define LMEM_ZEROINIT                       0x0040
 #define INVALID_HANDLE_VALUE                ((HANDLE)-1)
+#define S_OK                                (0L)
 #define STD_INPUT_HANDLE                    ((DWORD)-10)
 #define STD_OUTPUT_HANDLE                   ((DWORD)-11)
 #define GENERIC_WRITE                       (0x40000000L)
@@ -123,6 +128,11 @@ typedef int(*_CoreCrtNonSecureSearchSortCompareFunction)(void const *, void cons
 #define SOCKET_ERROR	                    -1
 #define WSAEWOULDBLOCK                      10035L
 #define WAIT_OBJECT_0                       (0x00000000UL)
+#define INFINITE                            (0xFFFFFFFFUL)
+#define MAXIMUM_WAIT_OBJECTS                64
+#define WAIT_OBJECT_0                       (0x00000000UL)
+#define WAIT_FAILED                         (0xFFFFFFFFUL)
+#define WAIT_TIMEOUT                        (258L)
 #define INFINITE                            (0xFFFFFFFFUL)
 #define MAXIMUM_WAIT_OBJECTS                64
 #define SID_MAX_SUB_AUTHORITIES             (15)
@@ -181,9 +191,9 @@ typedef int(*_CoreCrtNonSecureSearchSortCompareFunction)(void const *, void cons
 
 #define max(a, b)                           (((a) > (b)) ? (a) : (b))
 #define min(a, b)                           (((a) < (b)) ? (a) : (b))
-#define _byteswap_ushort(v)                 (bswap_16(v))
-#define _byteswap_ulong(v)                  (bswap_32(v))
-#define _byteswap_uint64(v)                 (bswap_64(v))
+#define _byteswap_ushort(v)                 (__builtin_bswap16(v))
+#define _byteswap_ulong(v)                  (__builtin_bswap32(v))
+#define _byteswap_uint64(v)                 (__builtin_bswap64(v))
 #ifndef _rotr
 #define _rotr(v,c)                          ((((DWORD)v) >> ((DWORD)c) | (DWORD)((DWORD)v) << (32 - (DWORD)c)))
 #endif /* _rotr */
@@ -215,6 +225,7 @@ typedef int(*_CoreCrtNonSecureSearchSortCompareFunction)(void const *, void cons
 #define _fseeki64(f, o, w)                  (fseeko(f, o, w))
 #define _chsize_s(fd, cb)                   (ftruncate64(fd, cb))
 #define _fileno(f)                          (fileno(f))
+#define fopen_su(pFile, filename, mode)     (fopen_s(pFile, filename, mode))
 #define InterlockedAdd64(p, v)              (__sync_add_and_fetch_8(p, v))
 #define InterlockedIncrement64(p)           (__sync_add_and_fetch_8(p, 1))
 #define InterlockedIncrement(p)             (__sync_add_and_fetch_4(p, 1))
@@ -603,13 +614,24 @@ typedef LIST_ENTRY64 *PLIST_ENTRY64;
 
 
 // SRWLOCK
-typedef struct tdSRWLOCK {
-    uint32_t xchg;
-    int c;
-} SRWLOCK, *PSRWLOCK;
-VOID InitializeSRWLock(PSRWLOCK SRWLock);
-VOID AcquireSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
-VOID ReleaseSRWLockExclusive(_Inout_ PSRWLOCK SRWLock);
+#ifdef LINUX
+    typedef struct tdSRWLOCK {
+        uint32_t xchg;
+        int c;
+    } SRWLOCK, *PSRWLOCK;
+#endif /* LINUX */
+#ifdef MACOS
+    #include <dispatch/dispatch.h>
+    typedef struct tdSRWLOCK {
+        union {
+            QWORD valid;
+            dispatch_semaphore_t sem;
+        };
+    } SRWLOCK, *PSRWLOCK;
+#endif /* MACOS */
+VOID InitializeSRWLock(PSRWLOCK pSRWLock);
+VOID AcquireSRWLockExclusive(_Inout_ PSRWLOCK pSRWLock);
+VOID ReleaseSRWLockExclusive(_Inout_ PSRWLOCK pSRWLock);
 #define AcquireSRWLockShared    AcquireSRWLockExclusive
 #define ReleaseSRWLockShared    ReleaseSRWLockExclusive
 #define SRWLOCK_INIT            { 0 }
@@ -635,7 +657,7 @@ USHORT QueryDepthSList(PSLIST_HEADER ListHead);
 PSLIST_ENTRY InterlockedPopEntrySList(_Inout_ PSLIST_HEADER ListHead);
 PSLIST_ENTRY InterlockedPushEntrySList(_Inout_ PSLIST_HEADER ListHead, _Inout_ PSLIST_ENTRY ListEntry);
 
-#endif /* LINUX */
+#endif /* LINUX || MACOS */
 
 
 

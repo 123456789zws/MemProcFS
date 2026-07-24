@@ -5,7 +5,7 @@
  *  
  *  Please consult the C/C++ header files vmmdll.h and leechcore.h for information about parameters and API usage.
  *  
- *  (c) Ulf Frisk, 2020-2024
+ *  (c) Ulf Frisk, 2020-2026
  *  Author: Ulf Frisk, pcileech@frizk.net
  *  
  */
@@ -132,7 +132,7 @@ namespace Vmmsharp.Internal
         internal const uint VMMDLL_YARA_CONFIG_VERSION = 0xdec30001;
         internal const uint VMMDLL_YARA_MEMORY_CALLBACK_CONTEXT_VERSION = 0xdec40002;
         internal const uint VMMDLL_YARA_CONFIG_MAX_RESULT = 0x00010000;      // max 65k results.
-        internal const uint VMMDLL_REGISTRY_HIVE_INFORMATION_VERSION = 4;
+        internal const uint VMMDLL_REGISTRY_HIVE_INFORMATION_VERSION = 5;
 
         internal const uint VMMDLL_VFS_FILELIST_EXINFO_VERSION = 1;
         internal const uint VMMDLL_VFS_FILELIST_VERSION = 2;
@@ -2109,6 +2109,20 @@ namespace Vmmsharp.Internal
             return result;
         }
 
+#if NET9_0_OR_GREATER
+        internal static unsafe bool MemReadRefAs<T>(IntPtr hVMM, uint pid, ulong qwA, out T result, uint flags = 0)
+            where T : unmanaged, allows ref struct
+        {
+            uint cb = (uint)sizeof(T);
+            result = default;
+            fixed (void* pb = &result)
+            {
+                return Vmmi.VMMDLL_MemReadEx(hVMM, pid, qwA, (byte*)pb, cb, out uint cbRead, flags) &&
+                    cbRead == cb;
+            }
+        }
+#endif
+
         internal static unsafe T[] MemReadArray<T>(IntPtr hVMM, uint pid, ulong qwA, uint count, uint flags = 0)
             where T : unmanaged
         {
@@ -2191,6 +2205,9 @@ namespace Vmmsharp.Internal
 
         internal static unsafe bool MemWriteStruct<T>(IntPtr hVMM, uint pid, ulong qwA, T value)
             where T : unmanaged
+#if NET9_0_OR_GREATER
+            , allows ref struct
+#endif
         {
             uint cb = (uint)sizeof(T);
             return Vmmi.VMMDLL_MemWrite(hVMM, pid, qwA, (byte*)&value, cb);
@@ -2211,7 +2228,7 @@ namespace Vmmsharp.Internal
             return Vmmi.VMMDLL_MemVirt2Phys(hVMM, pid, qwVA, out pqwPA);
         }
 
-        #endregion
+#endregion
 
     }
 }

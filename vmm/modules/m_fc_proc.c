@@ -4,14 +4,14 @@
 //
 // NB! module generate forensic data only - no file system presence!
 //
-// (c) Ulf Frisk, 2020-2024
+// (c) Ulf Frisk, 2020-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
 #include "modules.h"
 #include "../vmmwin.h"
 
-static LPSTR MFCPROC_CSV_PROCESS = "PID,PPID,State,ShortName,Name,IntegrityLevel,User,CreateTime,ExitTime,Wow64,EPROCESS,PEB,PEB32,DTB,UserDTB,UserPath,KernelPath,CommandLine\n";
+static LPSTR MFCPROC_CSV_PROCESS = "PID,PPID,State,ShortName,Name,IntegrityLevel,User,CreateTime,ExitTime,Wow64,EPROCESS,PEB,PEB32,DTB,UserDTB,UserPath,KernelPath,CommandLine,Flag\n";
 
 static LPSTR FC_SQL_SCHEMA_PROCESS =
     "DROP TABLE IF EXISTS process; " \
@@ -189,17 +189,32 @@ VOID MFcProc_FcLogJSON(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _In_
     LocalFree(pd);
 }
 
+static VOID MFcProc_BuildFlagString(_In_ PVMM_PROCESS pProcess, _In_ BOOL fAccountUser, _Out_writes_(8) LPSTR szFlag)
+{
+    SIZE_T o = 0;
+    if(pProcess->win.fWow64) { szFlag[o++] = '3'; szFlag[o++] = '2'; }
+    if(pProcess->win.EPROCESS.fNoLink) { szFlag[o++] = 'E'; }
+    if(pProcess->dwState != 0) { szFlag[o++] = 'T'; }
+    if(fAccountUser) { szFlag[o++] = 'U'; }
+    if(o == 0) {
+        szFlag[o++] = '-';
+    }
+    szFlag[o] = '\0';
+}
+
 VOID MFcProc_FcLogCSV(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _In_ VMMDLL_CSV_HANDLE hCSV)
 {
     PVMM_PROCESS pProcess = ctxP->pProcess;
     PVMMWIN_USER_PROCESS_PARAMETERS pu;
     BOOL fAccountUser = FALSE;
     CHAR szUserName[17];
+    CHAR szFlag[8];
     if(!pProcess) { return; }
     pu = VmmWin_UserProcessParameters_Get(H, pProcess);
+    MFcProc_BuildFlagString(pProcess, fAccountUser, szFlag);
     MFcProc_LogProcess_GetUserName(H, pProcess, szUserName, &fAccountUser);
     FcCsv_Reset(hCSV);
-    FcFileAppend(H, "process.csv", "%i,%i,%i,%s,%s,%s,%s,%s,%s,%i,0x%llx,0x%llx,0x%x,0x%llx,0x%llx,%s,%s,%s\n",
+    FcFileAppend(H, "process.csv", "%i,%i,%i,%s,%s,%s,%s,%s,%s,%i,0x%llx,0x%llx,0x%x,0x%llx,0x%llx,%s,%s,%s,%s\n",
         pProcess->dwPID,
         pProcess->dwPPID,
         pProcess->dwState,
@@ -217,7 +232,8 @@ VOID MFcProc_FcLogCSV(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _In_ 
         pProcess->paDTB_UserOpt,
         FcCsv_String(hCSV, pu->uszImagePathName),
         FcCsv_String(hCSV, pProcess->pObPersistent->uszPathKernel),
-        FcCsv_String(hCSV, pu->uszCommandLine)
+        FcCsv_String(hCSV, pu->uszCommandLine),
+        FcCsv_String(hCSV, szFlag)
     );
 }
 
@@ -229,7 +245,7 @@ VOID MFcProc_FcLogCSV(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _In_ 
 VOID M_FcProc_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if((pRI->tpSystem != VMM_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMM_SYSTEM_WINDOWS_32)) { return; }
+    if((pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_32)) { return; }
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\forensic\\hidden\\proc");       // module name
     pRI->reg_info.fRootModule = TRUE;                                           // module shows in root directory
     pRI->reg_info.fRootModuleHidden = TRUE;                                     // module hidden by default

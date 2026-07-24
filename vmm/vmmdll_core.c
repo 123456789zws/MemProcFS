@@ -1,11 +1,12 @@
 // vmmdll_core.c : implementation of core library functionality which mainly
 //      consists of library initialization and cleanup/close functionality.
 //
-// (c) Ulf Frisk, 2022-2024
+// (c) Ulf Frisk, 2022-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
 #include "vmm.h"
+#include "vmmex.h"
 #include "vmmdll.h"
 #include "vmmdll_remote.h"
 #include "vmmlog.h"
@@ -64,13 +65,13 @@ BOOL WINAPI DllMain(_In_ HINSTANCE hinstDLL, _In_ DWORD fdwReason, _In_ PVOID lp
     return TRUE;
 }
 #endif /* _WIN32 */
-#ifdef LINUX
+#if defined(LINUX) || defined(MACOS)
 __attribute__((constructor)) VOID VmmAttach()
 {
     VmmDllCore_InitializeGlobals();
     VmmDllRemote_InitializeGlobals();
 }
-#endif /* LINUX */
+#endif /* LINUX || MACOS */
 
 /*
 * Verify that the supplied handle is valid and also check it out.
@@ -391,13 +392,11 @@ VOID VmmDllCore_PrintHelp(_In_ VMM_HANDLE H)
         " MemProcFS v%i.%i.%i COMMAND LINE REFERENCE:                                   \n" \
         " MemProcFS may be used in stand-alone mode with support for memory dump files, \n" \
         " local memory via winpmem driver or together with PCILeech DMA devices.        \n" \
-        " -----                                                                         \n" \
-        " MemProcFS (c) 2018-2023 Ulf Frisk                                             \n" \
-        " License: GNU Affero General Public License v3.0                               \n" \
-        " Contact information: pcileech@frizk.net                                       \n" \
-        " MemProcFS:    https://github.com/ufrisk/MemProcFS                             \n" \
-        " LeechCore:    https://github.com/ufrisk/LeechCore                             \n" \
-        " PCILeech:     https://github.com/ufrisk/pcileech                              \n" \
+        " -----                                                                         \n",
+        VERSION_MAJOR, VERSION_MINOR, VERSION_REVISION
+    );
+    VmmEx_InitializePrintSplashCopyright(H);
+    vmmprintf(H,
         " -----                                                                         \n" \
         " The recommended way to use MemProcFS is to specify a memory acquisition device\n" \
         " in the -device option. Options -f and -z equals -device.                      \n" \
@@ -464,8 +463,8 @@ VOID VmmDllCore_PrintHelp(_In_ VMM_HANDLE H)
         "   -vm        : virtual machine (VM) parsing.                                  \n" \
         "   -vm-basic  : virtual machine (VM) parsing (physical memory only).           \n" \
         "   -vm-nested : virtual machine (VM) parsing (including nested VMs).           \n" \
-        "   -license-accept-elastic-license-2-0 : accept the Elastic License 2.0 to     \n" \
-        "          enable built-in yara rules from Elastic.                             \n" \
+        "   -license-accept-elastic-license-2-0 or -license-accept-elastic-license-2.0 :\n" \
+        "          accept the Elastic License 2.0 to enable built-in Elastic yara rules.\n" \
         "   -forensic-process-skip : comma-separated list of process names to skip.     \n" \
         "   -forensic-yara-rules : perfom a forensic yara scan with specified rules.    \n" \
         "          Full path to source or compiled yara rules should be specified.      \n" \
@@ -478,8 +477,7 @@ VOID VmmDllCore_PrintHelp(_In_ VMM_HANDLE H)
         "          2 = forensic mode with temp sqlite database deleted upon exit.       \n" \
         "          3 = forensic mode with temp sqlite database remaining upon exit.     \n" \
         "          4 = forensic mode with static named sqlite database (vmm.sqlite3).   \n" \
-        "          default: 0  Example -forensic 4                                      \n",
-        VERSION_MAJOR, VERSION_MINOR, VERSION_REVISION
+        "          default: 0  Example -forensic 4                                      \n"
     );
 }
 
@@ -496,7 +494,7 @@ VOID VmmDllCore_PrintHelp(_In_ VMM_HANDLE H)
 _Success_(return)
 BOOL VmmDllCore_InitializeConfig(_In_ VMM_HANDLE H, _In_ DWORD argc, _In_ const char *argv[])
 {
-    const char *argv2[3];
+    const char *argv2[3], *argvext;
     DWORD i = 0, dw, iPageFile;
     if((argc == 2) && ((0 == _stricmp(argv[0], "-printf")) || (argv[0][0] != '-')) && argv[1][0] && (argv[1][0] != '-')) {
         // click to open -> only 1 argument ...
@@ -591,8 +589,15 @@ BOOL VmmDllCore_InitializeConfig(_In_ VMM_HANDLE H, _In_ DWORD argc, _In_ const 
             if(CharUtil_StrEquals(argv[i + 1], "x64", TRUE))    { H->cfg.tpMemoryModel = VMM_MEMORYMODEL_X64; }
             if(CharUtil_StrEquals(argv[i + 1], "arm64", TRUE))  { H->cfg.tpMemoryModel = VMM_MEMORYMODEL_ARM64; }
             i += 2; continue;
-        } else if((0 == _stricmp(argv[i], "-cr3") || 0 == _stricmp(argv[i], "-dtb"))) {
+        } else if((0 == _stricmp(argv[i], "-cr3") || (0 == _stricmp(argv[i], "-dtb")))) {
             H->cfg.paCR3 = Util_GetNumericA(argv[i + 1]);
+            i += 2; continue;
+        } else if(0 == _stricmp(argv[i], "-dtb-range")) {
+            argvext = strstr(argv[i + 1], "-");
+            if(!argvext) { return FALSE; }
+            H->cfg.DTBRange.paStart = Util_GetNumericA(argv[i + 1]);
+            H->cfg.DTBRange.paEnd = (Util_GetNumericA(argvext + 1) + 1) & ~0xfff;
+            if((H->cfg.DTBRange.paStart >= H->cfg.DTBRange.paEnd)) { return FALSE; }
             i += 2; continue;
         } else if(0 == _stricmp(argv[i], "-create-from-vmmid")) {
             H->cfg.qwVmmID = Util_GetNumericA(argv[i + 1]);
@@ -613,6 +618,9 @@ BOOL VmmDllCore_InitializeConfig(_In_ VMM_HANDLE H, _In_ DWORD argc, _In_ const 
         } else if(0 == _stricmp(argv[i], "-loglevel")) {
             strcpy_s(H->cfg.szLogLevel, MAX_PATH, argv[i + 1]);
             i += 2; continue;
+        } else if(0 == _stricmp(argv[i], "-log-pfn-callback")) {
+            H->cfg.pfnLogCallback = (VMMDLL_LOG_CALLBACK_PFN)(ULONG_PTR)Util_GetNumericA(argv[i + 1]);
+            i += 2; continue;
         } else if(0 == _stricmp(argv[i], "-forensic-yara-rules")) {
             strcpy_s(H->cfg.szForensicYaraRules, MAX_PATH, argv[i + 1]);
             i += 2; continue;
@@ -625,6 +633,7 @@ BOOL VmmDllCore_InitializeConfig(_In_ VMM_HANDLE H, _In_ DWORD argc, _In_ const 
         } else if(0 == _stricmp(argv[i], "-memmap")) {
             strcpy_s(H->cfg.szMemMap, MAX_PATH, argv[i + 1]);
             if(!_stricmp(H->cfg.szMemMap, "auto")) { H->cfg.fMemMapAuto = TRUE; }
+            if(!_stricmp(H->cfg.szMemMap, "none")) { H->cfg.fMemMapNone = TRUE; }
             i += 2; continue;
         } else if(0 == _stricmp(argv[i], "-memmap-str")) {
             strcpy_s(H->cfg.szMemMapStr, _countof(H->cfg.szMemMapStr), argv[i + 1]);
@@ -642,7 +651,7 @@ BOOL VmmDllCore_InitializeConfig(_In_ VMM_HANDLE H, _In_ DWORD argc, _In_ const 
             strcpy_s(H->cfg.szPythonExecuteFile, MAX_PATH, argv[i + 1]);
             i += 2; continue;
         } else if(0 == _stricmp(argv[i], "-pythonpath")) {
-            strcpy_s(H->cfg.szPythonPath, MAX_PATH, argv[i + 1]);
+            strcpy_s(H->cfg.uszPythonPath, MAX_PATH, argv[i + 1]);
             i += 2; continue;
         } else if(0 == _stricmp(argv[i], "-remote")) {
             strcpy_s(H->dev.szRemote, MAX_PATH, argv[i + 1]);
@@ -815,6 +824,10 @@ VMM_HANDLE VmmDllCore_Initialize(_In_ DWORD argc, _In_ LPCSTR argv[], _Out_opt_ 
         }
         goto fail_prelock;
     }
+    if(!VmmEx_InitializeVerifyConfig(H)) {
+        vmmprintf(H, "\n");
+        goto fail_prelock;
+    }
     // 2.0: If -create-from-vmmid is specified, duplicate the parent VMM_HANDLE
     //      increasing its refcount. This also disregards any other parameters
     //      that may be specified.
@@ -878,7 +891,7 @@ VMM_HANDLE VmmDllCore_Initialize(_In_ DWORD argc, _In_ LPCSTR argv[], _Out_opt_ 
     // 7: Set LeechCore MemMap (if exists and not auto - i.e. from file)
     if(H->cfg.szMemMap[0] && !H->cfg.fMemMapAuto) {
         f = (pbMemMap = LocalAlloc(LMEM_ZEROINIT, 0x01000000)) &&
-            !fopen_s(&hFile, H->cfg.szMemMap, "rb") && hFile &&
+            !fopen_su(&hFile, H->cfg.szMemMap, "rb") && hFile &&
             (cbMemMap = (DWORD)fread(pbMemMap, 1, 0x01000000, hFile)) && (cbMemMap < 0x01000000) &&
             LcCommand(H->hLC, LC_CMD_MEMMAP_SET, cbMemMap, pbMemMap, NULL, NULL) &&
             LcGetOption(H->hLC, LC_OPT_CORE_ADDR_MAX, &H->dev.paMax);
@@ -1024,7 +1037,7 @@ VOID VmmDllCore_MemFreeExternal(_Frees_ptr_opt_ PVOID pvMem)
 * -- return
 */
 _Success_(return != NULL)
-PVOID VmmDllCore_MemAllocExternal(_In_ VMM_HANDLE H, _In_ DWORD tag, _In_ SIZE_T cb, _In_ SIZE_T cbHdr)
+PVOID VmmDllCore_MemAllocExternal(_In_opt_ VMM_HANDLE H, _In_ DWORD tag, _In_ SIZE_T cb, _In_ SIZE_T cbHdr)
 {
     POB_DATA pObData;
     if((cb > 0x40000000) || (cb < cbHdr)) { return NULL; }
@@ -1035,3 +1048,22 @@ PVOID VmmDllCore_MemAllocExternal(_In_ VMM_HANDLE H, _In_ DWORD tag, _In_ SIZE_T
     return pObData ? pObData->pb : NULL;
 }
 
+/*
+* Copy internal memory to freshly allocated "external" memory to be free'd only
+* by VMMDLL_MemFree // VmmDllCore_MemFreeExternal.
+* CALLER VMMDLL_MemFree(return)
+* -- H
+* -- tag = tag identifying the type of object.
+* -- pb = source memory to copy.
+* -- cb = size of memory to allocation and copy.
+* -- return
+*/
+_Success_(return != NULL)
+PVOID VmmDllCore_MemAllocExternalAndCopy(_In_opt_ VMM_HANDLE H, _In_ DWORD tag, _In_reads_bytes_(cb) PBYTE pb, _In_ SIZE_T cb)
+{
+    PVOID pv = VmmDllCore_MemAllocExternal(H, tag, cb, 0);
+    if(pv) {
+        memcpy(pv, pb, cb);
+    }
+    return pv;
+}

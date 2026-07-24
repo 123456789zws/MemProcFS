@@ -5,7 +5,7 @@
 // Detections:
 //  - THREAD_START
 // 
-// (c) Ulf Frisk, 2023-2024
+// (c) Ulf Frisk, 2023-2025
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -160,7 +160,7 @@ VOID MEvilThread1_DetectEvil_2(_In_ VMM_HANDLE H, _Inout_ PMEVIL_THREAD1_CONTEXT
     PVMMOB_TOKEN pObToken = NULL;
     // Thread impersonation (as system):
     // This is unfortunately fairly noisy.
-    if(pThreadEntry->vaImpersonationToken && ctx->pProcess->win.Token && !ctx->pProcess->win.Token->fSidUserSYSTEM && (ctx->pProcess->win.Token->IntegrityLevel != VMMDLL_PROCESS_INTEGRITY_LEVEL_SYSTEM)) {
+    if(pThreadEntry->vaImpersonationToken && ctx->pProcess->win.Token && !ctx->pProcess->win.Token->fSidUserSYSTEM && (ctx->pProcess->win.Token->IntegrityLevel != VMM_TOKEN_INTEGRITY_LEVEL_SYSTEM)) {
         if(VmmWinToken_Initialize(H, 1, &pThreadEntry->vaImpersonationToken, &pObToken)) {
             if(pObToken->fSidUserSYSTEM) {
                 if((pEvilEntry = MEvilThread1_GetEntry(H, ctx, pThreadEntry))) {
@@ -245,7 +245,7 @@ VOID MEvilThread1_DoWork(_In_ VMM_HANDLE H, _In_ VMMDLL_MODULE_ID MID, _In_opt_ 
     // 2: scan user-mode processes for evil threads:
     while((pObProcess = VmmProcessGetNext(H, pObProcess, VMM_FLAG_PROCESS_TOKEN))) {
         if(H->fAbort) { goto fail; }
-        if(pObProcess->dwState || !pObProcess->fUserOnly) { continue; }
+        if(pObProcess->dwState || VmmProcess_IsKernelOnly(pObProcess)) { continue; }
         if(FcIsProcessSkip(H, pObProcess)) { continue; }
         if(VmmMap_GetThread(H, pObProcess, &pObThreadMap)) {
             VmmMap_GetModule(H, pObProcess, 0, &ctx.pModuleMap);

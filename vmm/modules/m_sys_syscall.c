@@ -3,7 +3,7 @@
 // The '/sys/syscall' module is responsible for displaying the Windows syscall table
 // a.k.a. the System Service Dispatch Table (SSDT).
 //
-// (c) Ulf Frisk, 2020-2024
+// (c) Ulf Frisk, 2020-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -187,7 +187,7 @@ VOID MSyscall_Close(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP)
 VOID M_SysSyscall_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if((pRI->tpSystem != VMM_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMM_SYSTEM_WINDOWS_32)) { return; }
+    if((pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_32)) { return; }
     if(!(pRI->reg_info.ctxM = LocalAlloc(LMEM_ZEROINIT, sizeof(MSYSCALL_CONTEXT)))) { return; }     // internal module context
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\sys\\syscall");     // module name
     pRI->reg_info.fRootModule = TRUE;                               // module shows in root directory

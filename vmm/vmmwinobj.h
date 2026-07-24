@@ -1,6 +1,6 @@
 // vmmwinobj.h : declarations of functionality related to windows object manager.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -84,6 +84,11 @@ typedef struct tdOB_VMMWINOBJ_FILE {
     QWORD _Reserved3;
     QWORD _Reserved4;
 } OB_VMMWINOBJ_FILE, *POB_VMMWINOBJ_FILE;
+
+typedef struct tdVMMWINOBJFILE_SCATTER_CONTEXT {
+    POB_VMMWINOBJ_FILE pFile;
+    VMMWINOBJ_FILE_TP tp;
+} VMMWINOBJFILE_SCATTER_CONTEXT, *PVMMWINOBJFILE_SCATTER_CONTEXT;
 
 /*
 * Create an object manager map and assign to the global vmm context upon success.
@@ -169,6 +174,17 @@ QWORD VmmWinObjFile_Size(_In_ VMM_HANDLE H, _In_ POB_VMMWINOBJ_FILE pFile, _In_ 
 */
 _Success_(return != 0)
 DWORD VmmWinObjFile_Read(_In_ VMM_HANDLE H, _In_ POB_VMMWINOBJ_FILE pFile, _In_ QWORD cbOffset, _Out_writes_(cb) PBYTE pb, _In_ DWORD cb, _In_ QWORD fVmmRead, _In_ VMMWINOBJ_FILE_TP tp);
+
+/*
+* Scatter read file data.
+* Function is compatible with VmmScatter_ExecuteEx().
+* -- H
+* -- ctx = context containing the file object and type(s) to read accoring to VMMWINOBJ_FILE_TP_*
+* -- ppMEMsFile
+* -- cpMEMsFile
+* -- fVmmRead = flags as in VMM_FLAG_*
+*/
+VOID VmmWinObjFile_ReadScatter(_In_ VMM_HANDLE H, _In_ PVMMWINOBJFILE_SCATTER_CONTEXT ctx, _Inout_updates_(cpMEMsFile) PPMEM_SCATTER ppMEMsFile, _In_ DWORD cpMEMsFile, _In_ QWORD fVmmRead);
 
 /*
 * Read a contigious amount of file data and report the number of bytes read.

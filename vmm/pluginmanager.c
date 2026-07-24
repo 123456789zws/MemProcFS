@@ -1,6 +1,6 @@
 // pluginmanager.c : implementation of the plugin manager for MemProcFS plugins.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #include "pluginmanager.h"
@@ -8,10 +8,15 @@
 #include "charutil.h"
 #include "util.h"
 #include "vmm.h"
+#include "vmmex.h"
 #include "vmmdll.h"
 #include "vmmlog.h"
 #include "fc.h"
 #include "modules/modules_init.h"
+
+#ifdef VMM_PROFILE_FULL
+#include "ex/vmmex_modules_init.h"
+#endif /* VMM_PROFILE_FULL */
 
 //
 // This file contains functionality related to keeping track of plugins, both
@@ -641,7 +646,7 @@ VOID PluginManager_PythonExecFile(_In_ VMM_HANDLE H, _In_ LPCSTR szPythonFileToE
     LPSTR uszResultOfExec = NULL;
     PBYTE pbPythonProgram = NULL;
     f = (pbPythonProgram = LocalAlloc(LMEM_ZEROINIT, 0x01000000)) &&
-        !fopen_s(&hFile, H->cfg.szPythonExecuteFile, "rb") && hFile &&
+        !fopen_su(&hFile, H->cfg.szPythonExecuteFile, "rb") && hFile &&
         (cbPythonProgram = (DWORD)fread(pbPythonProgram, 1, 0x01000000, hFile)) && (cbPythonProgram < 0x01000000);
     if(f) {
         if(PluginManager_PythonExecCode(H, (LPSTR)pbPythonProgram, &uszResultOfExec) && uszResultOfExec) {
@@ -838,24 +843,25 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
     DWORD i;
     BOOL fBitnessFail = FALSE, fPythonStandalone = FALSE;
     VMMDLL_PLUGIN_REGINFO ri;
-    CHAR szPythonPath[MAX_PATH];
+    CHAR uszPythonPath[MAX_PATH];
+    CHAR uszVmmPycPath[MAX_PATH] = { 0 };
     HMODULE hDllPython3X = NULL, hDllPython3 = NULL, hDllPyPlugin = NULL;
     VOID(*pfnInitializeVmmPlugin)(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_REGINFO pRegInfo);
     // 0: Verify that Python should be enabled
     if(H->cfg.fDisablePython) { return; }
     // 1: Locate Python by trying user-defined path
-    if(H->cfg.szPythonPath[0]) {
+    if(H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
-            ZeroMemory(szPythonPath, MAX_PATH);
-            strcpy_s(szPythonPath, MAX_PATH, H->cfg.szPythonPath);
-            strcat_s(szPythonPath, MAX_PATH, "\\");
-            strcat_s(szPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
-            hDllPython3X = LoadLibraryExA(szPythonPath, 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+            ZeroMemory(uszPythonPath, MAX_PATH);
+            strcpy_s(uszPythonPath, MAX_PATH, H->cfg.uszPythonPath);
+            strcat_s(uszPythonPath, MAX_PATH, "\\");
+            strcat_s(uszPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
+            hDllPython3X = LoadLibraryU(uszPythonPath);
             if(hDllPython3X) { break; }
             fBitnessFail = fBitnessFail || (ERROR_BAD_EXE_FORMAT == GetLastError());
         }
         if(!hDllPython3X) {
-            ZeroMemory(H->cfg.szPythonPath, MAX_PATH);
+            ZeroMemory(H->cfg.uszPythonPath, MAX_PATH);
             VmmLog(H, MID_PLUGIN, LOGLEVEL_INFO,
                 fBitnessFail ?
                 "Python initialization failed. Unable to load 32-bit Python. 64-bit required." :
@@ -865,13 +871,13 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
         }
     }
     // 2: If Python is already loaded - use it!
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
             if((hDllPython3X = GetModuleHandleA(szPYTHON_VERSIONS_SUPPORTED[i]))) {
-                GetModuleFileNameA(hDllPython3X, szPythonPath, MAX_PATH);
-                hDllPython3X = LoadLibraryU(szPythonPath);
+                GetModuleFileNameA(hDllPython3X, uszPythonPath, MAX_PATH);
+                hDllPython3X = LoadLibraryU(uszPythonPath);
                 if(hDllPython3X) {
-                    Util_GetPathDll(H->cfg.szPythonPath, hDllPython3X);
+                    Util_GetPathDll(H->cfg.uszPythonPath, hDllPython3X);
                     fPythonStandalone = TRUE;
                     break;
                 }
@@ -879,34 +885,37 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
         }
     }
     // 3: Try locate Python by checking the python36 sub-directory relative to the current library (vmm.dll).
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
-            ZeroMemory(szPythonPath, MAX_PATH);
-            Util_GetPathLib(szPythonPath);
-            strcat_s(szPythonPath, MAX_PATH, "python\\");
-            strcat_s(szPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
-            hDllPython3X = LoadLibraryExA(szPythonPath, 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+            ZeroMemory(uszPythonPath, MAX_PATH);
+            Util_GetPathLib(uszPythonPath);
+            strcat_s(uszPythonPath, MAX_PATH, "python\\");
+            strcat_s(uszPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
+            hDllPython3X = LoadLibraryU(uszPythonPath);
             if(hDllPython3X) { break; }
             fBitnessFail = fBitnessFail || (ERROR_BAD_EXE_FORMAT == GetLastError());
         }
         if(hDllPython3X) {
-            Util_GetPathLib(H->cfg.szPythonPath);
-            strcat_s(H->cfg.szPythonPath, MAX_PATH, "python\\");
+            Util_GetPathLib(H->cfg.uszPythonPath);
+            strcat_s(H->cfg.uszPythonPath, MAX_PATH, "python\\");
         }
     }
     // 4: Try locate Python by loading from the current path.
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
-            hDllPython3X = LoadLibraryU(szPYTHON_VERSIONS_SUPPORTED[i]);
-            if(hDllPython3X) { break; }
+            hDllPython3X = LoadLibraryExA(szPYTHON_VERSIONS_SUPPORTED[i], NULL, LOAD_LIBRARY_SAFE_CURRENT_DIRS);
+            if(hDllPython3X) {
+                DWORD DEBUG = 1;
+                break;
+            }
             fBitnessFail = fBitnessFail || (ERROR_BAD_EXE_FORMAT == GetLastError());
         }
         if(hDllPython3X) {
-            Util_GetPathDll(H->cfg.szPythonPath, hDllPython3X);
+            Util_GetPathDll(H->cfg.uszPythonPath, hDllPython3X);
         }
     }
     // 5: Python is not found?
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         VmmLog(H, MID_PLUGIN, LOGLEVEL_INFO,
             fBitnessFail ?
             "Python initialization failed. Unable to load 32-bit Python. 64-bit required." :
@@ -915,19 +924,21 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
         goto fail;
     }
     // 6: Load Python3.dll as well (i.e. prevent vmmpyc.pyd to fetch the wrong one by mistake...)
-    Util_GetPathDll(szPythonPath, hDllPython3X);
-    strcat_s(szPythonPath, MAX_PATH, "python3.dll");
-    hDllPython3 = LoadLibraryExA(szPythonPath, 0, LOAD_WITH_ALTERED_SEARCH_PATH);
-    VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "PYTHON_PATH: %s", H->cfg.szPythonPath);
+    Util_GetPathDll(uszPythonPath, hDllPython3X);
+    strcat_s(uszPythonPath, MAX_PATH, "python3.dll");
+    hDllPython3 = LoadLibraryU(uszPythonPath);
+    VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "PYTHON_PATH: %s", H->cfg.uszPythonPath);
     // 7: process 'special status' python plugin manager.
-    hDllPyPlugin = LoadLibraryU("vmmpyc.pyd");
+    Util_GetPathLib(uszVmmPycPath);
+    strcat_s(uszVmmPycPath, MAX_PATH - 4, "vmmpyc.pyd");
+    hDllPyPlugin = LoadLibraryU(uszVmmPycPath);
     if(!hDllPyPlugin) {
-        VmmLog(H, MID_PLUGIN, LOGLEVEL_WARNING, "Python plugin manager failed to load.");
+        VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "Python plugin manager failed to load.");
         goto fail;
     }
     pfnInitializeVmmPlugin = (VOID(*)(VMM_HANDLE, PVMMDLL_PLUGIN_REGINFO))GetProcAddress(hDllPyPlugin, "InitializeVmmPlugin");
     if(!pfnInitializeVmmPlugin) {
-        VmmLog(H, MID_PLUGIN, LOGLEVEL_WARNING, "Python plugin manager failed to load due to corrupt DLL.");
+        VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "Python plugin manager failed to load due to corrupt DLL.");
         goto fail;
     }
     PluginManager_Initialize_RegInfoInit(H, &ri, hDllPyPlugin);
@@ -936,10 +947,10 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
     ri.python.hReservedDllPython3 = hDllPython3;
     pfnInitializeVmmPlugin(H, &ri);
     if(!PluginManager_ModuleExistsDll(H, hDllPyPlugin)) {
-        VmmLog(H, MID_PLUGIN, LOGLEVEL_WARNING, "Python plugin manager failed to load due to internal error.");
+        VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "Python plugin manager failed to load due to internal error.");
         return;
     }
-    VmmLog(H, MID_PLUGIN, LOGLEVEL_VERBOSE, "PluginManager: Python plugin loaded.");
+    VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "PluginManager: Python plugin loaded.");
     if(hDllPython3X) { FreeLibrary(hDllPython3X); }
     return;
 fail:
@@ -951,47 +962,49 @@ fail:
 VOID PluginManager_Initialize_ExternalDlls(_In_ VMM_HANDLE H)
 {
     VMMDLL_PLUGIN_REGINFO ri;
-    CHAR szPath[MAX_PATH];
+    CHAR uszPath[MAX_PATH];
+    WCHAR wszPath[MAX_PATH];
     DWORD cchPathBase;
     HANDLE hFindFile;
-    WIN32_FIND_DATAA FindData;
+    WIN32_FIND_DATAW FindData;
     HMODULE hDLL;
     VOID(*pfnInitializeVmmPlugin)(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_REGINFO pRegInfo);
-    Util_GetPathLib(szPath);
-    cchPathBase = (DWORD)strnlen(szPath, MAX_PATH - 1);
-    strcat_s(szPath, MAX_PATH, "plugins\\m_*"VMM_LIBRARY_FILETYPE);
-    hFindFile = FindFirstFileA(szPath, &FindData);
+    Util_GetPathLib(uszPath);
+    if(!CharUtil_UtoW(uszPath, (DWORD)-1, (PBYTE)wszPath, sizeof(wszPath), NULL, NULL, CHARUTIL_FLAG_STR_BUFONLY)) { return; }
+    cchPathBase = (DWORD)wcsnlen(wszPath, MAX_PATH - 1);
+    wcscat_s(wszPath, MAX_PATH, L"plugins\\m_*.dll");
+    hFindFile = FindFirstFileW(wszPath, &FindData);
     if(hFindFile != INVALID_HANDLE_VALUE) {
         do {
-            szPath[min(cchPathBase, MAX_PATH - 1)] = '\0';
-            strcat_s(szPath, MAX_PATH, "plugins\\");
-            strcat_s(szPath, MAX_PATH, FindData.cFileName);
-            hDLL = LoadLibraryExA(szPath, 0, 0);
+            wszPath[min(cchPathBase, MAX_PATH - 1)] = L'\0';
+            wcscat_s(wszPath, MAX_PATH, L"plugins\\");
+            wcscat_s(wszPath, MAX_PATH, FindData.cFileName);
+            hDLL = LoadLibraryExW(wszPath, 0, LOAD_WITH_ALTERED_SEARCH_PATH);
             if(!hDLL) {
-                VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "FAIL: Load DLL: '%s' - missing dependencies?", FindData.cFileName);
+                VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "FAIL: Load DLL: '%S' - missing dependencies?", FindData.cFileName);
                 continue;
             }
-            VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "Load DLL: '%s'", FindData.cFileName);
+            VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "Load DLL: '%S'", FindData.cFileName);
             pfnInitializeVmmPlugin = (VOID(*)(VMM_HANDLE, PVMMDLL_PLUGIN_REGINFO))GetProcAddress(hDLL, "InitializeVmmPlugin");
             if(!pfnInitializeVmmPlugin) {
-                VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "Unload DLL: '%s' - Plugin Entry Point not found", FindData.cFileName);
+                VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "Unload DLL: '%S' - Plugin Entry Point not found", FindData.cFileName);
                 FreeLibrary(hDLL);
                 continue;
             }
             PluginManager_Initialize_RegInfoInit(H, &ri, hDLL);
             pfnInitializeVmmPlugin(H, &ri);
             if(!PluginManager_ModuleExistsDll(H, hDLL)) {
-                VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "Unload DLL: '%s' - not registered with plugin manager", FindData.cFileName);
+                VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "Unload DLL: '%S' - not registered with plugin manager", FindData.cFileName);
                 FreeLibrary(hDLL);
                 continue;
             }
-        } while(FindNextFileA(hFindFile, &FindData) && !H->fAbort);
+        } while(FindNextFileW(hFindFile, &FindData) && !H->fAbort);
         FindClose(hFindFile);
     }
 }
 #endif /* _WIN32 */
 
-#ifdef LINUX
+#if defined(LINUX) || defined(MACOS)
 VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
 {
     struct link_map *lm;
@@ -1011,35 +1024,36 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
     DWORD i;
     BOOL fPythonStandalone = FALSE;
     VMMDLL_PLUGIN_REGINFO ri;
-    CHAR szPythonPath[MAX_PATH];
+    CHAR uszPythonPath[MAX_PATH];
+    CHAR uszVmmPycPath[MAX_PATH] = { 0 };
     HMODULE hDllPython3X = NULL, hDllPyPlugin = NULL;
     VOID(*pfnInitializeVmmPlugin)(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_REGINFO pRegInfo);
     // 0: Verify that Python should be enabled
     if(H->cfg.fDisablePython) { return; }
     // 1: Locate Python by trying user-defined path
-    if(H->cfg.szPythonPath[0]) {
+    if(H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
-            ZeroMemory(szPythonPath, MAX_PATH);
-            strcpy_s(szPythonPath, MAX_PATH, H->cfg.szPythonPath);
-            strcat_s(szPythonPath, MAX_PATH, "/");
-            strcat_s(szPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
-            hDllPython3X = dlopen(szPythonPath, RTLD_NOW | RTLD_GLOBAL);
+            ZeroMemory(uszPythonPath, MAX_PATH);
+            strcpy_s(uszPythonPath, MAX_PATH, H->cfg.uszPythonPath);
+            strcat_s(uszPythonPath, MAX_PATH, "/");
+            strcat_s(uszPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
+            hDllPython3X = dlopen(uszPythonPath, RTLD_NOW | RTLD_GLOBAL);
             if(hDllPython3X) { break; }
         }
         if(!hDllPython3X) {
-            ZeroMemory(H->cfg.szPythonPath, MAX_PATH);
+            ZeroMemory(H->cfg.uszPythonPath, MAX_PATH);
             VmmLog(H, MID_PLUGIN, LOGLEVEL_INFO, "Python initialization failed. Python 3.6 or later not found on user specified path.");
             return;
         }
     }
     // 2: If Python is already loaded - use it!
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
             if((hDllPython3X = GetModuleHandleA(szPYTHON_VERSIONS_SUPPORTED[i]))) {
-                GetModuleFileNameA(hDllPython3X, szPythonPath, MAX_PATH);
-                hDllPython3X = dlopen(szPythonPath, RTLD_NOW | RTLD_GLOBAL);
+                GetModuleFileNameA(hDllPython3X, uszPythonPath, MAX_PATH);
+                hDllPython3X = dlopen(uszPythonPath, RTLD_NOW | RTLD_GLOBAL);
                 if(hDllPython3X) {
-                    Util_GetPathDll(H->cfg.szPythonPath, hDllPython3X);
+                    Util_GetPathDll(H->cfg.uszPythonPath, hDllPython3X);
                     fPythonStandalone = TRUE;
                     break;
                 }
@@ -1047,45 +1061,47 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
         }
     }
     // 3: Try locate Python by checking the python36 sub-directory relative to the current executable (.exe).
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
-            ZeroMemory(szPythonPath, MAX_PATH);
-            Util_GetPathDll(szPythonPath, NULL);
-            strcat_s(szPythonPath, MAX_PATH, "python/");
-            strcat_s(szPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
-            hDllPython3X = dlopen(szPythonPath, RTLD_NOW | RTLD_GLOBAL);
+            ZeroMemory(uszPythonPath, MAX_PATH);
+            Util_GetPathDll(uszPythonPath, NULL);
+            strcat_s(uszPythonPath, MAX_PATH, "python/");
+            strcat_s(uszPythonPath, MAX_PATH, szPYTHON_VERSIONS_SUPPORTED[i]);
+            hDllPython3X = dlopen(uszPythonPath, RTLD_NOW | RTLD_GLOBAL);
             if(hDllPython3X) { break; }
         }
         if(hDllPython3X) {
-            Util_GetPathDll(H->cfg.szPythonPath, NULL);
-            strcat_s(H->cfg.szPythonPath, MAX_PATH, "python/");
+            Util_GetPathDll(H->cfg.uszPythonPath, NULL);
+            strcat_s(H->cfg.uszPythonPath, MAX_PATH, "python/");
         }
     }
     // 4: Try locate Python by loading from the current path.
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         for(i = 0; i < cszPYTHON_VERSIONS_SUPPORTED; i++) {
             hDllPython3X = dlopen(szPYTHON_VERSIONS_SUPPORTED[i], RTLD_NOW | RTLD_GLOBAL);
             if(hDllPython3X) { break; }
         }
         if(hDllPython3X) {
-            Util_GetPathDll(H->cfg.szPythonPath, hDllPython3X);
+            Util_GetPathDll(H->cfg.uszPythonPath, hDllPython3X);
         }
     }
     // 5: Python is not found?
-    if(0 == H->cfg.szPythonPath[0]) {
+    if(0 == H->cfg.uszPythonPath[0]) {
         VmmLog(H, MID_PLUGIN, LOGLEVEL_INFO, "Python initialization failed. Python 3.6 or later not found.");
         goto fail;
     }
-    VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "PYTHON_PATH: %s", H->cfg.szPythonPath);
+    VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "PYTHON_PATH: %s", H->cfg.uszPythonPath);
     // 7: process 'special status' python plugin manager.
-    hDllPyPlugin = dlopen("vmmpyc.so", RTLD_NOW | RTLD_GLOBAL);
+    Util_GetPathLib(uszVmmPycPath);
+    strcat_s(uszVmmPycPath, MAX_PATH - 4, "vmmpyc"VMM_LIBRARY_FILETYPE);
+    hDllPyPlugin = dlopen(uszVmmPycPath, RTLD_NOW | RTLD_GLOBAL);
     if(!hDllPyPlugin) {
-        VmmLog(H, MID_PLUGIN, LOGLEVEL_WARNING, "Python plugin manager failed to load.");
+        VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "Python plugin manager failed to load.");
         goto fail;
     }
     pfnInitializeVmmPlugin = (VOID(*)(VMM_HANDLE, PVMMDLL_PLUGIN_REGINFO))GetProcAddress(hDllPyPlugin, "InitializeVmmPlugin");
     if(!pfnInitializeVmmPlugin) {
-        VmmLog(H, MID_PLUGIN, LOGLEVEL_WARNING, "Python plugin manager failed to load due to corrupt DLL.");
+        VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "Python plugin manager failed to load due to corrupt DLL.");
         goto fail;
     }
     PluginManager_Initialize_RegInfoInit(H, &ri, hDllPyPlugin);
@@ -1094,10 +1110,10 @@ VOID PluginManager_Initialize_Python(_In_ VMM_HANDLE H)
     ri.python.hReservedDllPython3 = hDllPython3X;
     pfnInitializeVmmPlugin(H, &ri);
     if(!PluginManager_ModuleExistsDll(H, hDllPyPlugin)) {
-        VmmLog(H, MID_PLUGIN, LOGLEVEL_WARNING, "Python plugin manager failed to load due to internal error.");
+        VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "Python plugin manager failed to load due to internal error.");
         return;
     }
-    VmmLog(H, MID_PLUGIN, LOGLEVEL_VERBOSE, "PluginManager: Python plugin loaded.");
+    VmmLog(H, MID_PLUGIN, LOGLEVEL_4_VERBOSE, "PluginManager: Python plugin loaded.");
     return;
 fail:
     if(hDllPyPlugin) { dlclose(hDllPyPlugin); }
@@ -1124,19 +1140,17 @@ VOID PluginManager_Initialize_ExternalDlls(_In_ VMM_HANDLE H)
         VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "FAIL load external modules - plugins directory missing");
         return;
     }
-    if(!dp) { return; }
     while((ep = readdir(dp)) && !H->fAbort) {
-        if(!ep->d_name || (ep->d_name[0] != 'm') || (ep->d_name[1] != '_')) { continue; }
+        if((ep->d_name[0] != 'm') || (ep->d_name[1] != '_')) { continue; }
         if(!CharUtil_StrEndsWith(ep->d_name, VMM_LIBRARY_FILETYPE, TRUE)) { continue; }
-
+        szPath[cchPathBase] = '\0';
         strcat_s(szPath + cchPathBase, MAX_PATH - cchPathBase, ep->d_name);
+        VmmLog(H, MID_PLUGIN, LOGLEVEL_6_TRACE, "Try load external module '%s'", szPath);
         hDLL = dlopen(szPath, RTLD_NOW);
         if(!hDLL) {
-            VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "FAIL load external module '%s' - missing dependencies?", ep->d_name);
+            VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "FAIL load external module '%s' - ('%s') missing dependencies?", ep->d_name, dlerror());
             continue;
         }
-
-
         pfnInitializeVmmPlugin = (VOID(*)(VMM_HANDLE, PVMMDLL_PLUGIN_REGINFO))dlsym(hDLL, "InitializeVmmPlugin");
         if(!pfnInitializeVmmPlugin) {
             VmmLog(H, MID_PLUGIN, LOGLEVEL_DEBUG, "FAIL load external module '%s' - plugin entry point not found", ep->d_name);
@@ -1153,7 +1167,7 @@ VOID PluginManager_Initialize_ExternalDlls(_In_ VMM_HANDLE H)
     }
     closedir(dp);
 }
-#endif /* LINUX */
+#endif /* LINUX || MACOS */
 
 BOOL PluginManager_Initialize(_In_ VMM_HANDLE H)
 {
@@ -1175,6 +1189,11 @@ BOOL PluginManager_Initialize(_In_ VMM_HANDLE H)
         if(H->fAbort) { goto fail; }
         PluginManager_Initialize_RegInfoInit(H, &ri, NULL);
         g_pfnModulesAllInternal[i](H, &ri);
+    }
+    for(i = 0; i < sizeof(g_pfnModulesExAllInternal) / sizeof(PVOID); i++) {
+        if(H->fAbort) { goto fail; }
+        PluginManager_Initialize_RegInfoInit(H, &ri, NULL);
+        g_pfnModulesExAllInternal[i](H, &ri);
     }
     // 4: process dll modules
     PluginManager_Initialize_ExternalDlls(H);

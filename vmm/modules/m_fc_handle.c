@@ -4,7 +4,7 @@
 //
 // NB! module generate forensic data only - no file system presence!
 //
-// (c) Ulf Frisk, 2022-2024
+// (c) Ulf Frisk, 2022-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -29,7 +29,7 @@ VOID MFcHandle_FcLogCSV(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _In
     CHAR szPoolTag[5] = { 0 };
     CHAR uszBufferDevName[MAX_PATH] = { 0 };
     DWORD i;
-    if(pProcess && VmmMap_GetHandle(H, pProcess, &pObHandleMap, TRUE)) {
+    if(pProcess && VmmMap_GetHandle(H, pProcess, &pObHandleMap, VMM_HANDLE_FLAG_FULLTEXT)) {
         for(i = 0; i < pObHandleMap->cMap; i++) {
             pe = pObHandleMap->pMap + i;
             // type&pool tag:
@@ -67,7 +67,7 @@ VOID MFcHandle_FcLogCSV(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _In
 VOID M_FcHandle_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if((pRI->tpSystem != VMM_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMM_SYSTEM_WINDOWS_32)) { return; }
+    if((pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_32)) { return; }
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\forensic\\hidden\\handles");     // module name
     pRI->reg_info.fRootModule = TRUE;                                           // module shows in root directory
     pRI->reg_info.fRootModuleHidden = TRUE;                                     // module hidden by default

@@ -10,7 +10,7 @@ It's even possible to connect to a remote LeechAgent memory acquisition agent ov
 
 Use your favorite tools to analyze memory - use your favorite hex editors, your python and powershell scripts, WinDbg or your favorite disassemblers and debuggers - all will work trivally with MemProcFS by just reading and writing files!
 
-<p align="center"><img src="https://github.com/ufrisk/MemProcFS/wiki/resources/proc_base3.png" height="190"/><img src="https://github.com/ufrisk/MemProcFS/wiki/resources/pciescreamer.jpeg" height="190"/><img src="https://github.com/ufrisk/MemProcFS/wiki/resources/proc_modules.png" height="190"/></p>
+<p align="center"><img src="https://github.com/ufrisk/MemProcFS/wiki/resources/proc_base3.png" height="190"/><img src="https://github.com/ufrisk/MemProcFS/wiki/resources/pciescreamer.jpeg" height="190"/><img src="https://github.com/ufrisk/MemProcFS/wiki/resources/proc_modules.png" height="190"/><img src="https://github.com/ufrisk/MemProcFS/wiki/resources/root_memprocfs_macos.png" height="190"/></p>
 
 
 
@@ -21,7 +21,7 @@ Check out the excellent quick walkthrough from [13Cubed](https://www.13cubed.com
 
 <p align="center"> <a href="https://youtu.be/hjWVUrf7Obk" alt="13Cubed: MemProcFS - This Changes Everything" target="_new"><img src="http://img.youtube.com/vi/hjWVUrf7Obk/0.jpg" height="230"/></a> <a href="https://youtu.be/mca3rLsHuTA?t=952" alt="Disobey 2020 talk - Live Memory Attacks and Forensics" target="_new"><img src="http://img.youtube.com/vi/mca3rLsHuTA/0.jpg" height="230"/></a> <a href="https://www.youtube.com/watch?v=Da_9SV9FA34" alt="Microsoft BlueHatIL 2019 talk - Practical Uses for Hardware-assisted Memory Visualization" target="_new"><img src="http://img.youtube.com/vi/Da_9SV9FA34/0.jpg" height="230"/></a></p>
 
-For additional documentation **check out the [project wiki](https://github.com/ufrisk/MemProcFS/wiki)** for in-depth detailed information about the file system itself, its API and its plugin modules! For additional information about memory acqusition methods check out the **[LeechCore project](https://github.com/ufrisk/LeechCore/)** or hop into the [PCILeech/MemProcFS](https://discord.gg/pcileech) Discord server!
+For additional documentation **check out the [project wiki](https://github.com/ufrisk/MemProcFS/wiki)** for in-depth detailed information about the file system itself, its API and its plugin modules! For additional information about memory acqusition methods check out the **[LeechCore project](https://github.com/ufrisk/LeechCore/)** or hop into the [PCILeech/MemProcFS](https://pcileech.com/discord) Discord server!
 
 To get going download the [latest binaries, modules and configuration files](https://github.com/ufrisk/MemProcFS/releases/latest) and check out the [guide](https://github.com/ufrisk/MemProcFS/wiki)!
 
@@ -36,10 +36,13 @@ Mounting the file system requires the <b>Dokany file system library</b> to be in
 
 To capture live memory (without PCILeech FPGA hardware) download [DumpIt](https://www.magnetforensics.com/resources/magnet-dumpit-for-windows) and start MemProcFS via DumpIt /LIVEKD mode. Alternatively, get WinPMEM by downloading the most recent signed [WinPMEM driver](https://github.com/Velocidex/c-aff4/tree/master/tools/pmem/resources/winpmem) and place it alongside MemProcFS - detailed instructions in the [LeechCore Wiki](https://github.com/ufrisk/LeechCore/wiki/Device_WinPMEM).
 
-PCILeech FPGA will require hardware as well as _FTD3XX.dll_ to be dropped alongside the MemProcFS binaries. Please check out the [LeechCore](https://github.com/ufrisk/LeechCore) project for instructions.
+PCILeech FPGA will require hardware as well as _FTD3XXWU.dll_ to be dropped alongside the MemProcFS binaries. Please check out the [LeechCore](https://github.com/ufrisk/LeechCore) project for instructions.
 
 ## Linux
-MemProcFS is dependent on packages, do a `sudo apt-get install libusb-1.0 fuse openssl lz4` before trying out MemProcFS. If building from source check out the guide about [MemProcFS on Linux](https://github.com/ufrisk/MemProcFS/wiki/_Linux).
+MemProcFS should be possible to run out-of-the-box on most Linux distros with FUSE installed. If building from source check out the guide about [MemProcFS on Linux](https://github.com/ufrisk/MemProcFS/wiki/_Linux).
+
+## macOS
+Download the latest MemProcFS release from [here](https://github.com/ufrisk/MemProcFS/releases/latest). MemProcFS when used as a mounted virtual file system depends on **macFuse** which requires a .kext. Download and install macFuse [here](https://github.com/macfuse/macfuse/releases/latest). If MemProcFS is used via the supported C/C++/Rust APIs macFuse is not required.
 
 
 
@@ -82,7 +85,7 @@ PCILeech and MemProcFS community:
 =========
 Find all this a bit overwhelming? Or just want to ask a quick question? Join the PCILeech and MemProcFS DMA community server at Discord!
 
-<a href="https://discord.gg/pcileech"><img src="https://discord.com/api/guilds/1155439643395883128/widget.png?style=banner3"/></a>
+<a href="https://pcileech.com/discord"><img src="https://discord.com/api/guilds/1155439643395883128/widget.png?style=banner3"/></a>
 
 
 
@@ -109,7 +112,7 @@ PCILeech, MemProcFS and LeechCore are open source but not open contribution. PCI
 Links:
 ======
 * Twitter: [![Twitter](https://img.shields.io/twitter/follow/UlfFrisk?label=UlfFrisk&style=social)](https://twitter.com/intent/follow?screen_name=UlfFrisk)
-* Discord: [![Discord | PCILeech/MemProcFS](https://img.shields.io/discord/1155439643395883128.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/pcileech)
+* Discord: [![Discord | PCILeech/MemProcFS](https://img.shields.io/discord/1155439643395883128.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://pcileech.com/discord)
 * PCILeech: https://github.com/ufrisk/pcileech
 * PCILeech FPGA: https://github.com/ufrisk/pcileech-fpga
 * LeechCore: https://github.com/ufrisk/LeechCore
@@ -120,19 +123,7 @@ Links:
 
 Links - Related Projects:
 =========================
-* MemProcFS-Analyzer: https://github.com/evild3ad/MemProcFS-Analyzer
-
-
-
-Support PCILeech/MemProcFS development:
-=======================================
-PCILeech and MemProcFS is free and open source!
-
-I put a lot of time and energy into PCILeech and MemProcFS and related research to make this happen. Some aspects of the projects relate to hardware and I put quite some money into my projects and related research. If you think PCILeech and/or MemProcFS are awesome tools and/or if you had a use for them it's now possible to contribute by becoming a sponsor! 
- 
-If you like what I've created with PCIleech and MemProcFS with regards to DMA, Memory Analysis and Memory Forensics and would like to give something back to support future development please consider becoming a sponsor at: [`https://github.com/sponsors/ufrisk`](https://github.com/sponsors/ufrisk)
-
-To all my sponsors, Thank You 💖 
+* [MemProcFS-Analyzer](https://github.com/LETHAL-FORENSICS/MemProcFS-Analyzer/) is a 3rd party PowerShell application used for simplifying the usage of MemProcFS and to optimize your memory analysis workflow. MemProcFS-Analyzer is maintained by [@evild3ad](https://github.com/evild3ad) at [LETHAL-FORENSICS](https://github.com/LETHAL-FORENSICS).
 
 
 
@@ -211,7 +202,6 @@ v5.8
 * FindEvil: AV detections from Windows Defender residing on the analyzed system.
 * Python API: new functionality (multi-read, type-read) and improved scatter read performance.
 * Support for Proxmox memory dump files.
-</details>
 
 [v5.10](https://github.com/ufrisk/MemProcFS/releases/tag/v5.10)
 * Support for Windows 11 24H2 release.
@@ -233,13 +223,37 @@ v5.8
 * Bug fixes.
 * updates (FindEvil, New signatures, etc.).
 * New APIs for Kernel Objects, Drivers and Devices.
+</details>
 
-[v5.13](https://github.com/ufrisk/MemProcFS/releases/tag/v5.12)
+[v5.13](https://github.com/ufrisk/MemProcFS/releases/tag/v5.13)
 * Bug fixes.
 * New [console module](https://github.com/ufrisk/MemProcFS/wiki/FS_Process_Console) added.
 * File recovery improvements (file sizes, signing info) for [files module](https://github.com/ufrisk/MemProcFS/wiki/FS_Forensic_Files).
 * Memory callback API functionality (C/C++ API only).
 * [Callstack parsing](https://github.com/ufrisk/MemProcFS/wiki/FS_Process_Threads) for x64 user-mode process callstacks.
 
+[v5.14](https://github.com/ufrisk/MemProcFS/releases/tag/v5.14)
+* Bug fixes.
+* Linux clang compilation support.
+* macOS support.
+
+[v5.15](https://github.com/ufrisk/MemProcFS/releases/tag/v5.15)
+* Bug fixes.
+* Linux LeechAgent support using gRPC (LeechCore v2.21).
+* New FindEvil detection: High Entropy.
+* [DNS cache parsing](https://github.com/ufrisk/MemProcFS/wiki/FS_SysInfo_Network). Thanks [@MattCore71](https://github.com/MattCore71) for the contribution.
+
+[v5.16](https://github.com/ufrisk/MemProcFS/releases/tag/v5.16)
+* Bug fixes.
+* Support for Windows 11 25H2
+
+[v5.17](https://github.com/ufrisk/MemProcFS/releases/tag/v5.17)
+* Support for Windows 11 26H1.
+* Improved registry parsing.
+* New refresh options in the API.
+* New optional logging callback in the API.
+* Support for non-ascii characters in file paths.
+
 Latest:
 * Bug fixes.
+* PTE map upper limit adjusted from 65536 to 131072.

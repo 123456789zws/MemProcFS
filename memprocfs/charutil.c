@@ -1,6 +1,6 @@
 // charutil.c : implementation of various character/string utility functions.
 //
-// (c) Ulf Frisk, 2021-2024
+// (c) Ulf Frisk, 2021-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #include "charutil.h"
@@ -1566,6 +1566,52 @@ BOOL CharUtil_StrEquals(_In_opt_ LPCSTR usz, _In_opt_ LPCSTR usz2, _In_ BOOL fCa
     } else {
         return (0 == strcmp(usz, usz2));
     }
+}
+
+/*
+* Checks if a string contains a certain substring, if found return the pointer
+* to the 1st start of the substring in the original string.
+* -- usz
+* -- uszNeedle
+* -- fCaseInsensitive
+* -- return = pointer to the start of the substring in usz, or NULL if not found.
+*/
+LPCSTR CharUtil_StrContains(_In_opt_ LPCSTR usz, _In_opt_ LPCSTR uszSubString, _In_ BOOL fCaseInsensitive)
+{
+    SIZE_T i;
+    CHAR ch1, ch2;
+    if(!usz || !uszSubString || !uszSubString[0]) {
+        return (LPSTR)usz;
+    }
+    if(!fCaseInsensitive) {
+        return strstr(usz, uszSubString);
+    }
+    while(usz[0]) {
+        i = 0;
+        while(TRUE) {
+            ch1 = usz[i];
+            ch2 = uszSubString[i];
+            if(!ch2) {
+                return usz;
+            }
+            if(!ch1) {
+                return NULL;
+            }
+            if(ch1 >= 'a' && ch1 <= 'z') {
+                ch1 += 'A' - 'a';
+            }
+            if(ch2 >= 'a' && ch2 <= 'z') {
+                ch2 += 'A' - 'a';
+            }
+            if(ch1 == ch2) {
+                i++;
+                continue;
+            }
+            break;
+        }
+        usz++;
+    }
+    return NULL;
 }
 
 

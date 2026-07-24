@@ -2,7 +2,7 @@
 //
 // REQUIRE: FORENSIC SUB-SYSTEM INIT
 //
-// (c) Ulf Frisk, 2023-2024
+// (c) Ulf Frisk, 2023-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 

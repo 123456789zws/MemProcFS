@@ -1,7 +1,7 @@
 // vmmdll_core.h : definitions of core library functionality which mainly
 //      consists of library initialization and cleanup/close functionality.
 //
-// (c) Ulf Frisk, 2022-2024
+// (c) Ulf Frisk, 2022-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __VMMDLL_CORE_H__
@@ -32,7 +32,20 @@ VOID VmmDllCore_MemFreeExternal(_Frees_ptr_opt_ PVOID pvMem);
 * -- return
 */
 _Success_(return != NULL)
-PVOID VmmDllCore_MemAllocExternal(_In_ VMM_HANDLE H, _In_ DWORD tag, _In_ SIZE_T cb, _In_ SIZE_T cbHdr);
+PVOID VmmDllCore_MemAllocExternal(_In_opt_ VMM_HANDLE H, _In_ DWORD tag, _In_ SIZE_T cb, _In_ SIZE_T cbHdr);
+
+/*
+* Copy internal memory to freshly allocated "external" memory to be free'd only
+* by VMMDLL_MemFree // VmmDllCore_MemFreeExternal.
+* CALLER VMMDLL_MemFree(return)
+* -- H
+* -- tag = tag identifying the type of object.
+* -- pb = source memory to copy.
+* -- cb = size of memory to allocation and copy.
+* -- return
+*/
+_Success_(return != NULL)
+PVOID VmmDllCore_MemAllocExternalAndCopy(_In_opt_ VMM_HANDLE H, _In_ DWORD tag, _In_reads_bytes_(cb) PBYTE pb, _In_ SIZE_T cb);
 
 
 

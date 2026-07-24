@@ -6,7 +6,7 @@
 //  - Microsoft Edge (Chromium based)
 //  - Mozilla Firefox
 //
-// (c) Ulf Frisk, 2022-2024
+// (c) Ulf Frisk, 2022-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -265,7 +265,7 @@ VOID FcWeb_LoadSqliteDispatch(_In_ VMM_HANDLE H, _In_ PMWEB_CONTEXT ctx, _In_ FC
     // 3: create and write to temp file
     if(tmpnam_s(szFile, MAX_PATH)) { goto fail; }
     strncat_s(szFile, _countof(szFile), ".vmmsqlite3.tmp", _TRUNCATE);
-    if(fopen_s(&phFile, szFile, "wb")) {
+    if(fopen_su(&phFile, szFile, "wb")) {
         VmmLog(H, ctx->MID, LOGLEVEL_DEBUG, "fail open temp file: %s", szFile);
         goto fail;
     }
@@ -550,7 +550,7 @@ PVOID MWeb_FcInitialize(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP)
 VOID M_FcWeb_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if((pRI->tpSystem != VMM_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMM_SYSTEM_WINDOWS_32)) { return; }
+    if((pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_32)) { return; }
     if(!(pRI->reg_info.ctxM = (PVMMDLL_PLUGIN_INTERNAL_CONTEXT)ObContainer_New())) { return; }
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\forensic\\web");                // module name
     pRI->reg_info.fRootModule = TRUE;                                           // module shows in root directory

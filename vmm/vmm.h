@@ -1,6 +1,6 @@
 // vmm.h : definitions related to virtual memory management support.
 //
-// (c) Ulf Frisk, 2018-2024
+// (c) Ulf Frisk, 2018-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 #ifndef __VMM_H__
@@ -35,7 +35,7 @@
 #define VMM_STATUS_FILE_INVALID                 STATUS_FILE_INVALID
 #define VMM_STATUS_FILE_SYSTEM_LIMITATION       STATUS_FILE_SYSTEM_LIMITATION
 
-#define VMM_MEMMAP_ENTRIES_MAX                  0x10000
+#define VMM_MEMMAP_ENTRIES_MAX                  0x20000
 
 #define VMM_MEMMAP_PAGE_A                       0x0000000000000001
 #define VMM_MEMMAP_PAGE_W                       0x0000000000000002
@@ -157,7 +157,7 @@ typedef enum tdVMM_PTE_TP {
 // OBJECT TYPE table exists on Win7+ It's initialized on first use and it will
 // exist throughout the lifetime of vmm context. Call function:
 // VmmWin_ObjectTypeGet() to retrieve the type for a specific object type.
-// OBJECT TYPE description table is dependant on PDB symbol functionality.
+// OBJECT TYPE description table is dependent on PDB symbol functionality.
 typedef struct tdVMMWIN_OBJECT_TYPE {
     DWORD cb;       // optional type size
     DWORD cbu;
@@ -309,6 +309,10 @@ typedef struct tdVMM_MAP_VADEXENTRY {
 #define VMM_MODULE_FLAG_NORMAL           0
 #define VMM_MODULE_FLAG_DEBUGINFO        1
 #define VMM_MODULE_FLAG_VERSIONINFO      2
+
+#define VMM_HANDLE_FLAG_CORE             0
+#define VMM_HANDLE_FLAG_BASIC            1
+#define VMM_HANDLE_FLAG_FULLTEXT         2
 
 typedef enum tdVMM_MODULE_TP {
     VMM_MODULE_TP_NORMAL = 0,
@@ -878,7 +882,7 @@ typedef struct tdVMMOB_MAP_HANDLE {
     OB ObHdr;
     PBYTE pbMultiText;              // UTF-8 multi-string.
     DWORD cbMultiText;
-    BOOL fInfoExFile;
+    DWORD flags;                    // VMM_HANDLE_FLAG_*
     DWORD cMap;                     // # map entries.
     VMM_MAP_HANDLEENTRY pMap[];     // map entries.
 } VMMOB_MAP_HANDLE, *PVMMOB_MAP_HANDLE;
@@ -1249,11 +1253,12 @@ typedef struct tdVMMCONFIG {
     BOOL fVMNested;                     // parse virtual machines (very resource intensive)
     BOOL fVMPhysicalOnly;               // parse virtual machines as physical memory only (less resource intense)
     BOOL fMemMapAuto;
+    BOOL fMemMapNone;
     // values below:
     DWORD dwPteQualityThreshold;        // max number of allowed invalid PTE entries in a page table (default: 0x20)
     QWORD tcTimeStart;                  // start time GetTickCount64()
     // strings below
-    CHAR szPythonPath[MAX_PATH];
+    CHAR uszPythonPath[MAX_PATH];
     CHAR szPythonExecuteFile[MAX_PATH];
     CHAR szPageFile[10][MAX_PATH];
     CHAR szMemMap[MAX_PATH];
@@ -1267,6 +1272,11 @@ typedef struct tdVMMCONFIG {
         DWORD cusz;
         LPSTR* pusz;
     } ForensicProcessSkipList;
+    struct {
+        QWORD paStart;
+        QWORD paEnd;
+    } DTBRange;
+    VMMDLL_LOG_CALLBACK_PFN pfnLogCallback;
 } VMMCONFIG, *PVMMCONFIG;
 
 typedef struct tdVMMCONFIG_PDB {
@@ -1521,6 +1531,7 @@ typedef struct tdVMMWIN_OPTIONAL_KERNEL_CONTEXT {
     BOOL fInitialized;
     DWORD cCPUs;
     QWORD vaPfnDatabase;
+    QWORD vaPsActiveProcessHead;
     QWORD vaPsLoadedModuleListExp;
     QWORD vaMmUnloadedDrivers;
     QWORD vaMmLastUnloadedDriver;
@@ -2195,7 +2206,7 @@ typedef struct tdVMMOB_SCATTER *PVMMOB_SCATTER;
 * -- return = handle to be used in VmmScatter_* functions.
 */
 _Success_(return != NULL)
-PVMMOB_SCATTER VmmScatter_Initialize(_In_ VMM_HANDLE H, _In_ DWORD flags);
+PVMMOB_SCATTER VmmScatter_Initialize(_In_ VMM_HANDLE H, _In_ QWORD flags);
 
 /*
 * Prepare (add) a memory range for reading. The buffer pb and the read length
@@ -2213,7 +2224,7 @@ BOOL VmmScatter_PrepareEx(_In_ PVMMOB_SCATTER hS, _In_ QWORD va, _In_ DWORD cb, 
 
 /*
 * Prepare (add) a memory range for reading. The memory may after a call to
-* VmmScatter_Execute() be retrieved with VmmScatter_Read().
+* VmmScatter_Execute() be retrieved with VmmScatter_Read() / VmmScatter_ReadEx().
 * -- hS
 * -- va = start address of the memory range to read.
 * -- cb = size of memory range to read.
@@ -2224,7 +2235,7 @@ BOOL VmmScatter_Prepare(_In_ PVMMOB_SCATTER hS, _In_ QWORD va, _In_ DWORD cb);
 
 /*
 * Prepare (add) multiple memory ranges. The memory may after a call to
-* VmmScatter_Execute() be retrieved with VmmScatter_Read().
+* VmmScatter_Execute() be retrieved with VmmScatter_Read() / VmmScatter_ReadEx().
 * -- hS
 * -- psva = set with addresses to read.
 * -- cb = size of memory range to read.
@@ -2235,7 +2246,19 @@ BOOL VmmScatter_Prepare3(_In_ PVMMOB_SCATTER hS, _In_opt_ POB_SET psva, _In_ DWO
 
 /*
 * Prepare (add) multiple memory ranges. The memory may after a call to
-* VmmScatter_Execute() be retrieved with VmmScatter_Read().
+* VmmScatter_Execute() be retrieved with VmmScatter_Read() / VmmScatter_ReadEx().
+* -- hS
+* -- cAddresses
+* -- pqwAddresses = array of cAddresses length.
+* -- cb = size of memory range to read.
+* -- return
+*/
+_Success_(return)
+BOOL VmmScatter_Prepare4(_In_ PVMMOB_SCATTER hS, _In_ DWORD cAddresses, _In_ PQWORD pqwAddresses, _In_ DWORD cb);
+
+/*
+* Prepare (add) multiple memory ranges. The memory may after a call to
+* VmmScatter_Execute() be retrieved with VmmScatter_Read() / VmmScatter_ReadEx().
 * -- hS
 * -- pm = map of objects.
 * -- cb = size of memory range to read.
@@ -2253,7 +2276,22 @@ BOOL VmmScatter_Prepare5(_In_ PVMMOB_SCATTER hS, _In_opt_ POB_MAP pm, _In_ DWORD
 * -- return
 */
 _Success_(return)
-BOOL VmmScatter_Execute(_In_ PVMMOB_SCATTER hS, _In_ PVMM_PROCESS pProcess);
+BOOL VmmScatter_Execute(_In_ PVMMOB_SCATTER hS, _In_opt_ PVMM_PROCESS pProcess);
+
+// Custom scatter execute function type definition. See VmmScatter_ExecuteEx() for usage.
+typedef VOID(*VMM_SCATTER_CUSTOM_EXECUTE_SCATTER_PFN)(_In_ VMM_HANDLE H, _In_ PVOID ctx, _Inout_updates_(cpMEMs) PPMEM_SCATTER ppMEMs, _In_ DWORD cpMEMs, _In_ QWORD flags);
+
+/*
+* Retrieve the memory ranges previously populated with calls to the
+* VmmScatter_Prepare* functions.
+* Use a custom user-settable backend scatter function to retrieve memory.
+* -- hS
+* -- pCustomContext
+* -- pfnCustomScatter
+* -- return
+*/
+_Success_(return)
+BOOL VmmScatter_ExecuteEx(_In_ PVMMOB_SCATTER hS, _In_opt_ PVOID pCustomContext, _In_ VMM_SCATTER_CUSTOM_EXECUTE_SCATTER_PFN pfnCustomScatter);
 
 /*
 * Read out memory in previously populated ranges. This function should only be
@@ -2263,10 +2301,22 @@ BOOL VmmScatter_Execute(_In_ PVMMOB_SCATTER hS, _In_ PVMM_PROCESS pProcess);
 * -- cb
 * -- pb
 * -- pcbRead
-* -- return
+* -- return = TRUE on success (at least some bytes read), FALSE on failure (no bytes read).
 */
 _Success_(return)
-BOOL VmmScatter_Read(_In_ PVMMOB_SCATTER hS, _In_ QWORD va, _In_ DWORD cb, _Out_writes_opt_(cb) PBYTE pb, _Out_opt_ PDWORD pcbRead);
+BOOL VmmScatter_ReadEx(_In_ PVMMOB_SCATTER hS, _In_ QWORD va, _In_ DWORD cb, _Out_writes_opt_(cb) PBYTE pb, _Out_opt_ PDWORD pcbRead);
+
+/*
+* Read out memory in previously populated ranges. This function should only be
+* called after the memory has been retrieved using VmmScatter_Execute().
+* -- hS
+* -- va
+* -- cb
+* -- pb
+* -- return = TRUE on success (all bytes read).
+*/
+_Success_(return)
+BOOL VmmScatter_Read(_In_ PVMMOB_SCATTER hS, _In_ QWORD va, _In_ DWORD cb, _Out_writes_opt_(cb) PBYTE pb);
 
 /*
 * Clear/Reset the handle for use in another subsequent read scatter operation.
@@ -2500,6 +2550,13 @@ PVMM_PROCESS VmmProcessCreateEntry(_In_ VMM_HANDLE H, _In_ BOOL fTotalRefresh, _
 */
 _Success_(return)
 BOOL VmmProcessCreateTerminatedFakeEntry(_In_ VMM_HANDLE H, _In_ DWORD dwPID, _In_ DWORD dwPPID, _In_ QWORD ftCreate, _In_ QWORD ftExit, _In_reads_(15) LPSTR szShortName, _In_ LPSTR uszLongName);
+
+/*
+* Query the process whether it's a kernel process or not.
+* -- pProcess
+* -- return = TRUE if a typical kernel-mode process, FALSE if typical user-mode process.
+*/
+BOOL VmmProcess_IsKernelOnly(_In_opt_ PVMM_PROCESS pProcess);
 
 /*
 * Query process for its creation time.
@@ -2883,11 +2940,20 @@ BOOL VmmMap_GetThreadCallstack(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _I
 * -- H
 * -- pProcess
 * -- ppObHandleMap
-* -- fExtendedText
+* -- flags = optional flag: VMM_HANDLE_FLAG_*
 * -- return
 */
 _Success_(return)
-BOOL VmmMap_GetHandle(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _Out_ PVMMOB_MAP_HANDLE *ppObHandleMap, _In_ BOOL fExtendedText);
+BOOL VmmMap_GetHandle(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _Out_ PVMMOB_MAP_HANDLE *ppObHandleMap, _In_ DWORD flags);
+
+/*
+* Retrieve a single PVMM_MAP_HANDLEENTRY for a given HandleMap and HandleID.
+* -- H
+* -- pHandleMap
+* -- dwID
+* -- return = PTR to VMM_MAP_THREADENTRY or NULL on fail. Must not be used out of pThreadMap scope.
+*/
+PVMM_MAP_HANDLEENTRY VmmMap_GetHandleEntry(_In_ VMM_HANDLE H, _In_ PVMMOB_MAP_HANDLE pHandleMap, _In_ DWORD dwID);
 
 /*
 * Retrieve the OBJECT MANAGER map

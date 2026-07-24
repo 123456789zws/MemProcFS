@@ -1,6 +1,6 @@
 // m_proc_memmap.c : implementation of the memmap built-in module.
 //
-// (c) Ulf Frisk, 2019-2024
+// (c) Ulf Frisk, 2019-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -13,8 +13,8 @@
 #define MEMMAP_VAD_LINELENGTH_X64       161ULL
 #define MEMMAP_VADEX_LINELENGTH         162ULL
 
-#define MEMMAP_PTE_LINEHEADER_X86       "   #    PID    Pages Range Start-End   FLAGS   Description"
-#define MEMMAP_PTE_LINEHEADER_X64       "   #    PID    Pages      Range Start-End              FLAGS   Description"
+#define MEMMAP_PTE_LINEHEADER_X86       "    #    PID    Pages Range Start-End   FLAGS   Description"
+#define MEMMAP_PTE_LINEHEADER_X64       "    #    PID    Pages      Range Start-End              FLAGS   Description"
 #define MEMMAP_VAD_LINEHEADER_X86       "   #    PID  ObjAddr    Pages     Commit Range Start-End   Type  FLAGS  Description"
 #define MEMMAP_VAD_LINEHEADER_X64       "   #    PID   Object Address    Pages     Commit      Range Start-End              Type  FLAGS  Description"
 
@@ -123,7 +123,7 @@ NTSTATUS MemMap_Read_VadExMap(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In
 VOID MemMap_PteReadLine_Callback(_In_ VMM_HANDLE H, _In_ PVMM_PROCESS pProcess, _In_ DWORD cbLineLength, _In_ DWORD ie, _In_ PVMM_MAP_PTEENTRY pe, _Out_writes_(cbLineLength + 1) LPSTR szu8)
 {
     Util_usnprintf_ln(szu8, cbLineLength,
-        H->vmm.f32 ? "%04x%7i %8x %08x-%08x %cr%c%c%s%s" : "%04x%7i %8x %016llx-%016llx %cr%c%c%s%s",
+        H->vmm.f32 ? "%05x%7i %8x %08x-%08x %cr%c%c%s%s" : "%05x%7i %8x %016llx-%016llx %cr%c%c%s%s",
         ie,
         pProcess->dwPID,
         (DWORD)pe->cPages,
@@ -318,7 +318,7 @@ VOID MemMap_FcLogJSON(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctxP, _In_ 
 VOID M_ProcMemMap_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if(!((pRI->tpMemoryModel == VMM_MEMORYMODEL_X64) || (pRI->tpMemoryModel == VMM_MEMORYMODEL_ARM64) || (pRI->tpMemoryModel == VMM_MEMORYMODEL_X86) || (pRI->tpMemoryModel == VMM_MEMORYMODEL_X86PAE))) { return; }
+    if(!((pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_X64) || (pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_ARM64) || (pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_X86) || (pRI->tpMemoryModel == VMMDLL_MEMORYMODEL_X86PAE))) { return; }
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\memmap");               // module name
     pRI->reg_info.fRootModule = FALSE;                                  // module shows in root directory
     pRI->reg_info.fProcessModule = TRUE;                                // module shows in process directory

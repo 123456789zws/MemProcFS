@@ -326,6 +326,7 @@
     <ClInclude Include="..\includes\libpdbcrust.h" />
     <ClInclude Include="..\includes\vmmyara.h" />
     <ClInclude Include="charutil.h" />
+    <ClInclude Include="ext\lz4.h" />
     <ClInclude Include="ext\miniz.h" />
     <ClInclude Include="ext\sha256.h" />
     <ClInclude Include="ext\sqlite3.h" />
@@ -351,6 +352,7 @@
     <ClInclude Include="vmmdll.h" />
     <ClInclude Include="vmmdll_core.h" />
     <ClInclude Include="vmmdll_remote.h" />
+    <ClInclude Include="vmmex.h" />
     <ClInclude Include="vmmheap.h" />
     <ClInclude Include="vmmlog.h" />
     <ClInclude Include="vmmnet.h" />
@@ -370,6 +372,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="charutil.c" />
+    <ClCompile Include="ext\lz4.c" />
     <ClCompile Include="ext\miniz.c" />
     <ClCompile Include="ext\sha256.c" />
     <ClCompile Include="ext\sqlite3.c" />
@@ -385,6 +388,7 @@
     <ClCompile Include="modules\m_conf.c" />
     <ClCompile Include="modules\m_evil_apc1.c" />
     <ClCompile Include="modules\m_evil_av1.c" />
+    <ClCompile Include="modules\m_evil_entropy.c" />
     <ClCompile Include="modules\m_evil_kern1.c" />
     <ClCompile Include="modules\m_evil_kernproc1.c" />
     <ClCompile Include="modules\m_evil_proc1.c" />
@@ -429,6 +433,7 @@
     <ClCompile Include="modules\m_sys_driver.c" />
     <ClCompile Include="modules\m_sys_mem.c" />
     <ClCompile Include="modules\m_sys_net.c" />
+    <ClCompile Include="modules\m_sys_netdns.c" />
     <ClCompile Include="modules\m_sys_obj.c" />
     <ClCompile Include="modules\m_sys_pool.c" />
     <ClCompile Include="modules\m_sys_proc.c" />
@@ -463,6 +468,7 @@
     <ClCompile Include="vmmdll_core.c" />
     <ClCompile Include="vmmdll_remote.c" />
     <ClCompile Include="vmmdll_scatter.c" />
+    <ClCompile Include="vmmex_light.c" />
     <ClCompile Include="vmmheap.c" />
     <ClCompile Include="vmmlog.c" />
     <ClCompile Include="vmmnet.c" />
@@ -484,6 +490,7 @@
   <ItemGroup>
     <None Include="..\..\..\MemProcFS-dev\vmm\res\m_fc_json_elastic_import_unauth.ps1" />
     <None Include="Makefile" />
+    <None Include="Makefile.macos" />
     <None Include="res\m_fc_json_elastic_import.ps1" />
     <None Include="vmmdll.def" />
   </ItemGroup>

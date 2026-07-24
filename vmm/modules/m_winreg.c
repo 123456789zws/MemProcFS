@@ -1,6 +1,6 @@
 // m_winreg.c : implementation related to the WinReg built-in module.
 //
-// (c) Ulf Frisk, 2019-2024
+// (c) Ulf Frisk, 2019-2026
 // Author: Ulf Frisk, pcileech@frizk.net
 //
 
@@ -427,7 +427,7 @@ BOOL MWinReg_List(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctx, _Inout_ PH
         return FALSE;
     }
     if(!_strnicmp(uszPath, "HKLM", 4)) {
-        if(!strncmp(uszPath, "HKLM\\ORPHAN", 11)) {
+        if(!_strnicmp(uszPath, "HKLM\\ORPHAN", 11)) {
             FileExInfo.fCompressed = TRUE;
         }
         if(!_stricmp(uszPath, "HKLM") || !_stricmp(uszPath, "HKLM\\ORPHAN")) {
@@ -452,7 +452,7 @@ BOOL MWinReg_List(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctx, _Inout_ PH
         return FALSE;
     }
     if(!_strnicmp(uszPath, "HKU", 3)) {
-        if(!strncmp(uszPath, "HKU\\ORPHAN", 10)) {
+        if(!_strnicmp(uszPath, "HKU\\ORPHAN", 10)) {
             FileExInfo.fCompressed = TRUE;
         }
         if(!_stricmp(uszPath, "HKU") || !_stricmp(uszPath, "HKU\\ORPHAN")) {
@@ -487,7 +487,7 @@ BOOL MWinReg_List(_In_ VMM_HANDLE H, _In_ PVMMDLL_PLUGIN_CONTEXT ctx, _Inout_ PH
 VOID M_WinReg_Initialize(_In_ VMM_HANDLE H, _Inout_ PVMMDLL_PLUGIN_REGINFO pRI)
 {
     if((pRI->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRI->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if((pRI->tpSystem != VMM_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMM_SYSTEM_WINDOWS_32)) { return; }
+    if((pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_64) && (pRI->tpSystem != VMMDLL_SYSTEM_WINDOWS_32)) { return; }
     strcpy_s(pRI->reg_info.uszPathName, 128, "\\registry");     // module name
     pRI->reg_info.fRootModule = TRUE;                           // module shows in root directory
     pRI->reg_fn.pfnList = MWinReg_List;                         // List function supported
